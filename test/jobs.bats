@@ -43,7 +43,12 @@ load test_helper
   jq -n \
     --arg token "0123456789abcdef0123456789abcdef" \
     --argjson pid "$$" \
-    '{schema_version:1,status:"running",pid:$pid,token:$token}' \
+    '{
+      schema_version: 1,
+      status: "running",
+      pid: $pid,
+      token: $token
+    }' \
     > "$MEETING_DIR/transcribe-job.json"
   chmod 600 "$MEETING_DIR/transcribe-job.json"
 

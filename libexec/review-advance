@@ -49,7 +49,18 @@ write_review_state() {
     --argjson from "$review_cursor" \
     --argjson to "$next_cursor" \
     --argjson count "$requested_count" \
-    '.cursor = $to | .audit += [{at:$at,actor:$actor,from:$from,to:$to,count:$count}]' \
+    '
+      .cursor = $to
+      | .audit += [
+          {
+            at: $at,
+            actor: $actor,
+            from: $from,
+            to: $to,
+            count: $count
+          }
+        ]
+    ' \
     "$review_state" > "$temporary"
   chmod 600 "$temporary"
   mv "$temporary" "$review_state"

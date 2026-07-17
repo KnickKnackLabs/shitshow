@@ -24,6 +24,21 @@ load test_helper
   [ "$status" -eq 0 ]
   [ "$(jq -r '.health' <<< "$output")" = ok ]
   [ "$(jq -r '.transcription.status' <<< "$output")" = not-started ]
+  jq -e '
+    keys == [
+      "health", "meeting_id", "name", "recording",
+      "review", "transcription", "workspace"
+    ]
+    and (.recording | keys) == [
+      "actual_sha256", "bytes", "checksum",
+      "duration_seconds", "expected_sha256"
+    ]
+    and (.transcription | keys) == [
+      "chunk_count", "chunk_seconds", "chunks_complete",
+      "chunks_failed", "model", "status"
+    ]
+    and (.review | keys) == ["cursor", "total"]
+  ' <<< "$output"
 }
 
 @test "read-only tasks do not create the managed meetings store" {

@@ -19,7 +19,19 @@ write_job_state() {
     --arg finished_at "$finished_at" \
     --arg exit_code "$exit_code" \
     --argjson pid "$$" \
-    '{schema_version:1,status:$status,pid:$pid,token:$token,started_at:$started_at,finished_at:(if $finished_at == "" then null else $finished_at end),exit_code:(if $exit_code == "" then null else ($exit_code|tonumber) end)}' \
+    '{
+      schema_version: 1,
+      status: $status,
+      pid: $pid,
+      token: $token,
+      started_at: $started_at,
+      finished_at: (
+        if $finished_at == "" then null else $finished_at end
+      ),
+      exit_code: (
+        if $exit_code == "" then null else ($exit_code | tonumber) end
+      )
+    }' \
     > "$temporary"
   chmod 600 "$temporary"
   mv "$temporary" "$job_state"

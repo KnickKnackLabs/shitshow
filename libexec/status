@@ -97,25 +97,73 @@ validate_review_position() {
   fi
 }
 
+recording_status_json() {
+  jq -n \
+    --arg checksum "$checksum_status" \
+    --arg expected_sha256 "$expected_sha" \
+    --arg actual_sha256 "$actual_sha" \
+    --argjson duration_seconds "$duration" \
+    --argjson bytes "$audio_bytes" \
+    '{
+      checksum: $checksum,
+      expected_sha256: $expected_sha256,
+      actual_sha256: $actual_sha256,
+      duration_seconds: $duration_seconds,
+      bytes: $bytes
+    }'
+}
+
+transcription_status_json() {
+  jq -n \
+    --arg status "$transcription_status" \
+    --arg model "$model" \
+    --argjson chunks_complete "$completed_chunks" \
+    --argjson chunks_failed "$failed_chunks" \
+    --argjson chunk_count "$chunk_count" \
+    --argjson chunk_seconds "$chunk_seconds" \
+    '{
+      status: $status,
+      model: (if $model == "" then null else $model end),
+      chunks_complete: $chunks_complete,
+      chunks_failed: $chunks_failed,
+      chunk_count: $chunk_count,
+      chunk_seconds: $chunk_seconds
+    }'
+}
+
+review_status_json() {
+  jq -n \
+    --argjson cursor "$review_cursor" \
+    --argjson total "$chunk_count" \
+    '{
+      cursor: $cursor,
+      total: $total
+    }'
+}
+
 render_json_status() {
+  local recording transcription review
+  recording="$(recording_status_json)"
+  transcription="$(transcription_status_json)"
+  review="$(review_status_json)"
+
   jq -n \
     --arg health "$health" \
     --arg meeting_id "$meeting_id" \
     --arg name "$meeting_name" \
     --arg workspace "$meeting_dir" \
-    --arg checksum "$checksum_status" \
-    --arg expected_sha256 "$expected_sha" \
-    --arg actual_sha256 "$actual_sha" \
-    --arg transcription "$transcription_status" \
-    --arg model "$model" \
-    --argjson duration_seconds "$duration" \
-    --argjson bytes "$audio_bytes" \
-    --argjson chunks_complete "$completed_chunks" \
-    --argjson chunks_failed "$failed_chunks" \
-    --argjson chunk_count "$chunk_count" \
-    --argjson chunk_seconds "$chunk_seconds" \
-    --argjson review_cursor "$review_cursor" \
-    '{health:$health,meeting_id:$meeting_id,name:$name,workspace:$workspace,recording:{checksum:$checksum,expected_sha256:$expected_sha256,actual_sha256:$actual_sha256,duration_seconds:$duration_seconds,bytes:$bytes},transcription:{status:$transcription,model:(if $model == "" then null else $model end),chunks_complete:$chunks_complete,chunks_failed:$chunks_failed,chunk_count:$chunk_count,chunk_seconds:$chunk_seconds},review:{cursor:$review_cursor,total:$chunk_count}}'
+    --argjson recording "$recording" \
+    --argjson transcription "$transcription" \
+    --argjson review "$review" \
+    '{
+      health: $health,
+      meeting_id: $meeting_id,
+      name: $name,
+      workspace: $workspace,
+      recording: $recording,
+      transcription: $transcription,
+      review: $review
+    }'
 }
 
 render_human_status() {

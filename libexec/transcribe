@@ -123,7 +123,15 @@ write_transcription_config() {
     --argjson total_seconds "$total_seconds" \
     --argjson chunk_seconds "$chunk_seconds" \
     --argjson chunk_count "$chunk_count" \
-    '{schema_version:1,duration_seconds:$duration_seconds,total_seconds:$total_seconds,chunk_seconds:$chunk_seconds,chunk_count:$chunk_count,model:$model,prompt_sha:$prompt_sha}' \
+    '{
+      schema_version: 1,
+      duration_seconds: $duration_seconds,
+      total_seconds: $total_seconds,
+      chunk_seconds: $chunk_seconds,
+      chunk_count: $chunk_count,
+      model: $model,
+      prompt_sha: $prompt_sha
+    }' \
     > "$temporary"
   chmod 600 "$temporary"
   mv "$temporary" "$meeting_directory/transcribe-config.json"

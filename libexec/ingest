@@ -69,9 +69,19 @@ write_meeting_state() {
     --arg sha256 "$source_sha" \
     --arg duration_seconds "$duration" \
     --argjson bytes "$audio_bytes" \
-    '{schema_version:1,id:$id,name:$name,ingested_at:$ingested_at,audio_file:$audio_file,source_basename:$source_basename,sha256:$sha256,duration_seconds:($duration_seconds|tonumber),bytes:$bytes}'
+    '{
+      schema_version: 1,
+      id: $id,
+      name: $name,
+      ingested_at: $ingested_at,
+      audio_file: $audio_file,
+      source_basename: $source_basename,
+      sha256: $sha256,
+      duration_seconds: ($duration_seconds | tonumber),
+      bytes: $bytes
+    }'
   shitshow_atomic_json_file "$temporary_directory/review-state.json" -n \
-    '{schema_version:1,cursor:0,audit:[]}'
+    '{schema_version: 1, cursor: 0, audit: []}'
 
   mv "$temporary_directory" "$meeting_directory"
   temporary_directory=""
@@ -85,7 +95,14 @@ render_result() {
       --arg workspace "$meeting_directory" \
       --arg sha256 "$source_sha" \
       --arg duration_seconds "$duration" \
-      '{meeting_id:$meeting_id,name:$name,workspace:$workspace,status:"ingested",sha256:$sha256,duration_seconds:($duration_seconds|tonumber)}'
+      '{
+        meeting_id: $meeting_id,
+        name: $name,
+        workspace: $workspace,
+        status: "ingested",
+        sha256: $sha256,
+        duration_seconds: ($duration_seconds | tonumber)
+      }'
     return
   fi
 
