@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+
+# Internal reviewed-chunk presentation. The public task owns CLI parsing.
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo_root/lib/workspace.sh"
+source "$repo_root/lib/transcription.sh"
+
+load_review_context() {
+  local review_state="$meeting_dir/review-state.json"
+  shitshow_require_regular_file "$review_state" "review state"
+  review_cursor="$(
+    jq -er '.cursor | select(type == "number" and . >= 0 and floor == .)' \
+      "$review_state" 2>/dev/null
+  )" || shitshow_die "invalid review state: $review_state"
+
+  if ! chunk_count="$(shitshow_read_config "$meeting_dir" '.chunk_count' 2>/dev/null)"; then
+    chunk_count=""
+  fi
+  if ! chunk_seconds="$(shitshow_read_config "$meeting_dir" '.chunk_seconds' 2>/dev/null)"; then
+    chunk_seconds=""
+  fi
+  if ! total_seconds="$(shitshow_read_config "$meeting_dir" '.total_seconds' 2>/dev/null)"; then
+    total_seconds=""
+  fi
+
+  [[ "$review_cursor" =~ ^[0-9]+$ ]] || shitshow_die "invalid review cursor: $review_cursor"
+  [ -n "$chunk_count" ] || shitshow_die "transcription has not started"
+}
+
+print_transcript_chunk() {
+  local index="$1"
+  local id transcript completed_marker start seconds
+
+  id="$(printf '%03d' "$index")"
+  transcript="$meeting_dir/transcripts/chunk-${id}.txt"
+  completed_marker="$meeting_dir/transcripts/chunk-${id}.ok"
+  shitshow_require_regular_file "$completed_marker" "completed marker for chunk $id"
+  shitshow_require_regular_file "$transcript" "transcript for chunk $id"
+
+  start=$((index * chunk_seconds))
+  seconds="$(shitshow_chunk_duration "$index" "$total_seconds" "$chunk_seconds")"
+  printf '\n## Chunk %s — start %ss, duration %ss\n\n' "$id" "$start" "$seconds"
+  cat "$transcript"
+  printf '\n'
+}
+
+print_review_window() {
+  local index
+  printed_count=0
+  for ((index = review_cursor; index < chunk_count && printed_count < requested_count; index++)); do
+    print_transcript_chunk "$index"
+    printed_count=$((printed_count + 1))
+  done
+}
+
+print_review_receipt() {
+  local next=$((review_cursor + printed_count))
+  printf '\nReview cursor remains at %s/%s. Printed through chunk %03d.\n' \
+    "$review_cursor" "$chunk_count" "$((next - 1))"
+  printf 'After collaborative review: shitshow review:advance %s --count %s\n' \
+    "$meeting_id" "$printed_count"
+}
+
+main() {
+  meeting_id="${1:-}"
+  requested_count="${2:-1}"
+  [ -n "$meeting_id" ] || shitshow_die "meeting id is required"
+  [[ "$requested_count" =~ ^[1-9][0-9]*$ ]] || \
+    shitshow_die "count must be a positive integer"
+
+  meeting_dir="$(shitshow_require_meeting "$meeting_id")"
+  shitshow_verify_recording "$meeting_dir" >/dev/null
+  load_review_context
+
+  if [ "$review_cursor" -ge "$chunk_count" ]; then
+    printf 'Review complete: %s/%s chunks.\n' "$review_cursor" "$chunk_count"
+    return
+  fi
+
+  print_review_window
+  print_review_receipt
+}
+
+main "$@"

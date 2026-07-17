@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Shared private-workspace and process-state helpers.
+# Private managed-meeting storage, integrity, and atomic state helpers.
 
 shitshow_die() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -63,7 +63,8 @@ shitshow_assert_private_dir() {
   [ "$uid" = "$(id -u)" ] || shitshow_die "$label is not owned by the current user: $dir"
   mode="$(shitshow_file_mode "$dir")"
   [[ "$mode" =~ ^[0-7]{3,4}$ ]] || shitshow_die "cannot determine private mode for $label: $dir"
-  (( (8#$mode & 077) == 0 )) || shitshow_die "$label must not grant group or other access (mode $mode): $dir"
+  (( (8#$mode & 077) == 0 )) || \
+    shitshow_die "$label must not grant group or other access (mode $mode): $dir"
 }
 
 shitshow_data_directory() {
@@ -102,14 +103,10 @@ shitshow_require_meetings_store() {
   local data store
   data="$(shitshow_data_directory)"
 
-  [ ! -L "$data" ] || shitshow_die "managed data directory must not be a symlink: $data"
-  [ -d "$data" ] || shitshow_die "managed data directory not found: $data"
+  [ -e "$data" ] || shitshow_die "managed data directory not found: $data"
   shitshow_assert_private_dir "$data" "managed data directory"
   data="$(cd -P "$data" && pwd)"
-
   store="$data/meetings"
-  [ ! -L "$store" ] || shitshow_die "managed meetings store must not be a symlink: $store"
-  [ -d "$store" ] || shitshow_die "managed meetings store not found: $store"
   shitshow_assert_private_dir "$store" "managed meetings store"
   cd -P "$store" && pwd
 }
@@ -145,7 +142,8 @@ shitshow_require_meeting() {
   shitshow_assert_private_dir "$dir" "meeting workspace"
   metadata="$dir/meeting.json"
   shitshow_require_regular_file "$metadata" "meeting metadata"
-  stored_id="$(jq -er '.id' "$metadata" 2>/dev/null)" || shitshow_die "invalid meeting metadata: $metadata"
+  stored_id="$(jq -er '.id' "$metadata" 2>/dev/null)" || \
+    shitshow_die "invalid meeting metadata: $metadata"
   [ "$stored_id" = "$id" ] || shitshow_die "meeting metadata id mismatch: $id"
   printf '%s\n' "$dir"
 }
@@ -155,14 +153,16 @@ shitshow_audio_path() {
   local name audio
   name="$(jq -er '.audio_file' "$dir/meeting.json" 2>/dev/null)" || \
     shitshow_die "meeting metadata has no audio_file"
-  [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || shitshow_die "unsafe managed audio filename: $name"
+  [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || \
+    shitshow_die "unsafe managed audio filename: $name"
   audio="$dir/$name"
   shitshow_require_regular_file "$audio" "managed audio"
   printf '%s\n' "$audio"
 }
 
 shitshow_expected_sha() {
-  jq -er '.sha256' "$1/meeting.json" 2>/dev/null || shitshow_die "meeting metadata has no sha256"
+  jq -er '.sha256' "$1/meeting.json" 2>/dev/null || \
+    shitshow_die "meeting metadata has no sha256"
 }
 
 shitshow_verify_recording() {
@@ -171,7 +171,8 @@ shitshow_verify_recording() {
   audio="$(shitshow_audio_path "$dir")"
   expected="$(shitshow_expected_sha "$dir")"
   actual="$(shitshow_sha256 "$audio")"
-  [ "$actual" = "$expected" ] || shitshow_die "recording checksum mismatch expected=$expected actual=$actual"
+  [ "$actual" = "$expected" ] || \
+    shitshow_die "recording checksum mismatch expected=$expected actual=$actual"
   printf '%s\n' "$actual"
 }
 
@@ -192,49 +193,41 @@ shitshow_atomic_json_file() {
   mv "$temporary" "$destination"
 }
 
-shitshow_process_command() {
-  local command
-  if ! command="$(ps -p "$1" -o command= 2>/dev/null)"; then
-    command=""
+shitshow_acquire_lock() {
+  local lock="$1"
+  local label="$2"
+  local old_pid
+
+  [ ! -L "$lock" ] || shitshow_die "$label lock must not be a symlink: $lock"
+  if mkdir -m 700 "$lock" 2>/dev/null; then
+    printf '%s\n' "$$" > "$lock/pid"
+    chmod 600 "$lock/pid"
+    return 0
   fi
-  printf '%s\n' "$command"
+
+  if ! old_pid="$(cat "$lock/pid" 2>/dev/null)"; then
+    old_pid=""
+  fi
+  if [[ "$old_pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$old_pid" 2>/dev/null; then
+    shitshow_die "$label already active with pid $old_pid"
+  fi
+
+  rm -f "$lock/pid"
+  rmdir "$lock" 2>/dev/null || \
+    shitshow_die "$label stale lock contains unexpected entries: $lock"
+  mkdir -m 700 "$lock"
+  printf '%s\n' "$$" > "$lock/pid"
+  chmod 600 "$lock/pid"
 }
 
-shitshow_job_pid() {
-  local dir="$1"
-  local state="$dir/transcribe-job.json"
-  local pid token command
-
-  [ ! -L "$state" ] || return 1
-  [ -f "$state" ] || return 1
-  if ! pid="$(jq -er '.pid | select(type == "number")' "$state" 2>/dev/null)"; then
-    return 1
+shitshow_release_lock() {
+  local lock="$1"
+  local owner
+  if ! owner="$(cat "$lock/pid" 2>/dev/null)"; then
+    owner=""
   fi
-  if ! token="$(jq -er '.token | select(type == "string")' "$state" 2>/dev/null)"; then
-    return 1
-  fi
-  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
-  [[ "$token" =~ ^[0-9a-f]{32}$ ]] || return 1
-  kill -0 "$pid" 2>/dev/null || return 1
-  command="$(shitshow_process_command "$pid")"
-  [[ "$command" == *"transcribe-job"* && "$command" == *"$token"* ]] || return 1
-  printf '%s\n' "$pid"
-}
-
-shitshow_job_state() {
-  local dir="$1"
-  local state="$dir/transcribe-job.json"
-  local recorded
-  if pid="$(shitshow_job_pid "$dir")"; then
-    printf 'running\n'
-  elif [ -f "$state" ]; then
-    recorded="$(jq -r '.status // "stale"' "$state" 2>/dev/null || printf 'stale')"
-    if [ "$recorded" = running ]; then
-      printf 'stale\n'
-    else
-      printf '%s\n' "$recorded"
-    fi
-  else
-    printf 'not-started\n'
+  if [ "$owner" = "$$" ]; then
+    rm -f "$lock/pid"
+    rmdir "$lock" 2>/dev/null || shitshow_die "lock contains unexpected entries: $lock"
   fi
 }

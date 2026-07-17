@@ -5,35 +5,4 @@
 
 set -euo pipefail
 
-source "$MISE_CONFIG_ROOT/lib/common.sh"
-
-meeting_id="$usage_meeting_id"
-dir="$(shitshow_require_meeting "$meeting_id")"
-state="$dir/transcribe-job.json"
-
-if ! pid="$(shitshow_job_pid "$dir")"; then
-  recorded_status=""
-  if [ -f "$state" ]; then
-    if ! recorded_status="$(jq -r '.status // ""' "$state" 2>/dev/null)"; then
-      recorded_status=""
-    fi
-  fi
-  if [ "$recorded_status" = running ]; then
-    printf 'meeting: %s\nstatus: stale\n' "$meeting_id"
-    printf 'Refusing to signal an unverified process.\n' >&2
-    exit 2
-  fi
-  printf 'meeting: %s\nstatus: not-running\n' "$meeting_id"
-  exit 0
-fi
-
-kill -TERM "$pid"
-for ((attempt = 0; attempt < 100; attempt++)); do
-  if ! kill -0 "$pid" 2>/dev/null; then
-    printf 'meeting: %s\nstatus: paused\npid: %s\n' "$meeting_id" "$pid"
-    exit 0
-  fi
-  sleep 0.1
-done
-
-shitshow_die "verified transcription process $pid did not stop after SIGTERM"
+exec "$MISE_CONFIG_ROOT/libexec/transcribe-stop" "$usage_meeting_id"

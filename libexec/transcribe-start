@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+
+# Internal background transcription launcher. The public task owns CLI parsing.
+
+set -euo pipefail
+umask 077
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo_root/lib/workspace.sh"
+source "$repo_root/lib/transcription-job.sh"
+
+validate_request() {
+  [[ "$chunk_seconds" =~ ^[1-9][0-9]*$ ]] || \
+    shitshow_die "chunk seconds must be a positive integer"
+  case "$model" in
+    qwen3-asr-0.6b|qwen3-asr-1.7b) ;;
+    *) shitshow_die "unsupported model: $model" ;;
+  esac
+}
+
+resolve_prompt_source() {
+  if [ -n "$prompt_file" ] && [[ "$prompt_file" != /* ]]; then
+    prompt_file="$caller_directory/$prompt_file"
+  fi
+  if [ -n "$prompt_file" ]; then
+    [ -f "$prompt_file" ] && [ -r "$prompt_file" ] || \
+      shitshow_die "prompt file not found or unreadable: $prompt_file"
+  fi
+}
+
+prepare_background_output() {
+  local name path
+  for name in transcribe-job.out transcribe-job.err; do
+    path="$meeting_directory/$name"
+    [ ! -L "$path" ] || shitshow_die "background output must not be a symlink: $path"
+    : > "$path"
+    chmod 600 "$path"
+  done
+}
+
+launch_transcription_job() {
+  job_token="$(shitshow_random_hex 16)"
+  SHITSHOW_JOB_PROMPT_FILE="$prompt_file" \
+    nohup "$MISE_CONFIG_ROOT/libexec/transcribe-job" \
+    "$meeting_id" "$job_token" "$chunk_seconds" "$model" \
+    > "$meeting_directory/transcribe-job.out" \
+    2> "$meeting_directory/transcribe-job.err" \
+    < /dev/null &
+  launcher_pid=$!
+}
+
+wait_for_verified_job() {
+  local attempt
+  verified_pid=""
+  for ((attempt = 0; attempt < 50; attempt++)); do
+    if verified_pid="$(shitshow_job_pid "$meeting_directory")"; then
+      return
+    fi
+    if ! kill -0 "$launcher_pid" 2>/dev/null; then
+      return
+    fi
+    sleep 0.1
+  done
+}
+
+report_start_failure() {
+  local recorded_status
+  recorded_status="$(shitshow_job_state "$meeting_directory")"
+  if [ "$recorded_status" = complete ]; then
+    printf 'meeting: %s\nstatus: complete\n' "$meeting_id"
+    return 0
+  fi
+
+  printf 'ERROR: transcription did not start (status: %s)\n' "$recorded_status" >&2
+  if [ -f "$meeting_directory/transcribe-job.err" ]; then
+    tail -20 "$meeting_directory/transcribe-job.err" >&2
+  fi
+  return 1
+}
+
+release_control_lock() {
+  shitshow_release_lock "$control_lock"
+}
+
+main() {
+  meeting_id="${1:-}"
+  chunk_seconds="${2:-300}"
+  model="${3:-qwen3-asr-0.6b}"
+  prompt_file="${4:-}"
+  [ -n "$meeting_id" ] || shitshow_die "meeting id is required"
+  caller_directory="${SHITSHOW_CALLER_PWD:-$PWD}"
+
+  validate_request
+  meeting_directory="$(shitshow_require_meeting "$meeting_id")"
+  control_lock="$meeting_directory/.transcribe-control.lock"
+  shitshow_acquire_lock "$control_lock" "transcription job control"
+  trap release_control_lock EXIT
+
+  if running_pid="$(shitshow_job_pid "$meeting_directory")"; then
+    shitshow_die "transcription already running with pid $running_pid"
+  fi
+
+  resolve_prompt_source
+  prepare_background_output
+  launch_transcription_job
+  wait_for_verified_job
+
+  if [ -z "$verified_pid" ]; then
+    report_start_failure
+    return
+  fi
+  printf 'meeting: %s\nstatus: running\npid: %s\n' "$meeting_id" "$verified_pid"
+}
+
+main "$@"

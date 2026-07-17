@@ -12,8 +12,16 @@ load test_helper
     .mise/tasks/test \
     .mise/tasks/doctor \
     .github/workflows/test.yml \
-    lib/common.sh \
+    lib/workspace.sh \
     lib/transcription.sh \
+    lib/transcription-job.sh \
+    libexec/ingest \
+    libexec/status \
+    libexec/review \
+    libexec/review-advance \
+    libexec/transcribe \
+    libexec/transcribe-start \
+    libexec/transcribe-stop \
     libexec/transcribe-job
   do
     [ -e "$REPO_DIR/$path" ]

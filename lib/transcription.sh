@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# Resumable chunk configuration, progress, and transcript assembly.
+
 shitshow_total_seconds() {
   awk -v duration="$1" 'BEGIN { print int(duration + 0.999) }'
 }
@@ -95,42 +97,4 @@ shitshow_read_config() {
   [ ! -L "$config" ] || return 1
   [ -f "$config" ] || return 1
   jq -er "$expression" "$config" 2>/dev/null
-}
-
-shitshow_acquire_lock() {
-  local lock="$1"
-  local label="$2"
-  local old_pid
-
-  [ ! -L "$lock" ] || shitshow_die "$label lock must not be a symlink: $lock"
-  if mkdir -m 700 "$lock" 2>/dev/null; then
-    printf '%s\n' "$$" > "$lock/pid"
-    chmod 600 "$lock/pid"
-    return 0
-  fi
-
-  if ! old_pid="$(cat "$lock/pid" 2>/dev/null)"; then
-    old_pid=""
-  fi
-  if [[ "$old_pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$old_pid" 2>/dev/null; then
-    shitshow_die "$label already active with pid $old_pid"
-  fi
-
-  rm -f "$lock/pid"
-  rmdir "$lock" 2>/dev/null || shitshow_die "$label stale lock contains unexpected entries: $lock"
-  mkdir -m 700 "$lock"
-  printf '%s\n' "$$" > "$lock/pid"
-  chmod 600 "$lock/pid"
-}
-
-shitshow_release_lock() {
-  local lock="$1"
-  local owner
-  if ! owner="$(cat "$lock/pid" 2>/dev/null)"; then
-    owner=""
-  fi
-  if [ "$owner" = "$$" ]; then
-    rm -f "$lock/pid"
-    rmdir "$lock" 2>/dev/null || shitshow_die "lock contains unexpected entries: $lock"
-  fi
 }

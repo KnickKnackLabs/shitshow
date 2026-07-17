@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+
+# Internal audio-ingestion workflow. The public task owns CLI parsing.
+
+set -euo pipefail
+umask 077
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo_root/lib/workspace.sh"
+
+resolve_audio_source() {
+  if [[ "$audio_source" != /* ]]; then
+    audio_source="$caller_directory/$audio_source"
+  fi
+  [ -f "$audio_source" ] || shitshow_die "audio file not found: $audio_source"
+  [ -r "$audio_source" ] || shitshow_die "audio file is not readable: $audio_source"
+}
+
+validate_display_name() {
+  if [[ "$meeting_name" =~ [[:cntrl:]] ]]; then
+    shitshow_die "name must not contain control characters"
+  fi
+  [ "${#meeting_name}" -le 120 ] || shitshow_die "name must be 120 characters or fewer"
+}
+
+choose_managed_audio_name() {
+  local extension="${audio_source##*.}"
+  if [ "$extension" = "$audio_source" ]; then
+    extension=audio
+  else
+    extension="$(printf '%s' "$extension" | tr '[:upper:]' '[:lower:]')"
+    [[ "$extension" =~ ^[a-z0-9]{1,10}$ ]] || extension=audio
+  fi
+  managed_audio_name="recording.$extension"
+}
+
+create_private_workspace() {
+  meetings_store="$(shitshow_ensure_meetings_store)"
+  meeting_id="$(shitshow_new_meeting_id)"
+  meeting_directory="$meetings_store/$meeting_id"
+  [ ! -e "$meeting_directory" ] && [ ! -L "$meeting_directory" ] || \
+    shitshow_die "generated meeting id collision; retry ingest"
+  temporary_directory="$meetings_store/.ingest.$$.$(shitshow_random_hex 4)"
+
+  mkdir -m 700 "$temporary_directory"
+  cp -- "$audio_source" "$temporary_directory/$managed_audio_name"
+  chmod 600 "$temporary_directory/$managed_audio_name"
+}
+
+verify_private_copy() {
+  source_sha="$(shitshow_sha256 "$audio_source")"
+  copied_sha="$(shitshow_sha256 "$temporary_directory/$managed_audio_name")"
+  [ "$copied_sha" = "$source_sha" ] || shitshow_die "copied recording checksum mismatch"
+  duration="$(shitshow_duration "$temporary_directory/$managed_audio_name")"
+  audio_bytes="$(shitshow_file_size "$temporary_directory/$managed_audio_name")"
+}
+
+write_meeting_state() {
+  local source_basename
+  source_basename="$(basename "$audio_source")"
+
+  # shellcheck disable=SC2016 # jq program variables are populated by --arg.
+  shitshow_atomic_json_file "$temporary_directory/meeting.json" -n \
+    --arg id "$meeting_id" \
+    --arg name "$meeting_name" \
+    --arg ingested_at "$(shitshow_iso_now)" \
+    --arg audio_file "$managed_audio_name" \
+    --arg source_basename "$source_basename" \
+    --arg sha256 "$source_sha" \
+    --arg duration_seconds "$duration" \
+    --argjson bytes "$audio_bytes" \
+    '{schema_version:1,id:$id,name:$name,ingested_at:$ingested_at,audio_file:$audio_file,source_basename:$source_basename,sha256:$sha256,duration_seconds:($duration_seconds|tonumber),bytes:$bytes}'
+  shitshow_atomic_json_file "$temporary_directory/review-state.json" -n \
+    '{schema_version:1,cursor:0,audit:[]}'
+
+  mv "$temporary_directory" "$meeting_directory"
+  temporary_directory=""
+}
+
+render_result() {
+  if [ "$json_output" = true ]; then
+    jq -n \
+      --arg meeting_id "$meeting_id" \
+      --arg name "$meeting_name" \
+      --arg workspace "$meeting_directory" \
+      --arg sha256 "$source_sha" \
+      --arg duration_seconds "$duration" \
+      '{meeting_id:$meeting_id,name:$name,workspace:$workspace,status:"ingested",sha256:$sha256,duration_seconds:($duration_seconds|tonumber)}'
+    return
+  fi
+
+  printf 'meeting: %s\n' "$meeting_id"
+  if [ -n "$meeting_name" ]; then
+    printf 'name: %s\n' "$meeting_name"
+  fi
+  printf 'status: ingested\n'
+  printf 'duration: %.1f seconds\n' "$duration"
+  printf 'sha256: %s\n' "$source_sha"
+  printf 'workspace: %s\n' "$meeting_directory"
+}
+
+cleanup_temporary_workspace() {
+  if [ -n "${temporary_directory:-}" ] && \
+      [ -d "$temporary_directory" ] && \
+      [ ! -L "$temporary_directory" ]; then
+    rm -rf "$temporary_directory"
+  fi
+}
+
+main() {
+  shitshow_require_command jq
+  shitshow_require_command ffprobe
+
+  audio_source="${1:-}"
+  meeting_name="${2:-}"
+  json_output="${3:-false}"
+  [ -n "$audio_source" ] || shitshow_die "audio file is required"
+  caller_directory="${SHITSHOW_CALLER_PWD:-$PWD}"
+  temporary_directory=""
+  trap cleanup_temporary_workspace EXIT
+
+  resolve_audio_source
+  validate_display_name
+  choose_managed_audio_name
+  create_private_workspace
+  verify_private_copy
+  write_meeting_state
+  render_result
+}
+
+main "$@"

@@ -7,55 +7,6 @@
 
 set -euo pipefail
 
-source "$MISE_CONFIG_ROOT/lib/common.sh"
-source "$MISE_CONFIG_ROOT/lib/transcription.sh"
-
-meeting_id="$usage_meeting_id"
-count="$usage_count"
-[[ "$count" =~ ^[1-9][0-9]*$ ]] || shitshow_die "count must be a positive integer"
-
-dir="$(shitshow_require_meeting "$meeting_id")"
-shitshow_verify_recording "$dir" >/dev/null
-review_state="$dir/review-state.json"
-shitshow_require_regular_file "$review_state" "review state"
-cursor="$(jq -er '.cursor | select(type == "number" and . >= 0 and floor == .)' "$review_state" 2>/dev/null)" || \
-  shitshow_die "invalid review state: $review_state"
-if ! chunk_count="$(shitshow_read_config "$dir" '.chunk_count' 2>/dev/null)"; then
-  chunk_count=""
-fi
-if ! chunk_seconds="$(shitshow_read_config "$dir" '.chunk_seconds' 2>/dev/null)"; then
-  chunk_seconds=""
-fi
-if ! total="$(shitshow_read_config "$dir" '.total_seconds' 2>/dev/null)"; then
-  total=""
-fi
-
-[[ "$cursor" =~ ^[0-9]+$ ]] || shitshow_die "invalid review cursor: $cursor"
-[ -n "$chunk_count" ] || shitshow_die "transcription has not started"
-
-if [ "$cursor" -ge "$chunk_count" ]; then
-  printf 'Review complete: %s/%s chunks.\n' "$cursor" "$chunk_count"
-  exit 0
-fi
-
-printed=0
-for ((i = cursor; i < chunk_count && printed < count; i++)); do
-  id="$(printf '%03d' "$i")"
-  transcript="$dir/transcripts/chunk-${id}.txt"
-  ok_marker="$dir/transcripts/chunk-${id}.ok"
-  shitshow_require_regular_file "$ok_marker" "completed marker for chunk $id"
-  shitshow_require_regular_file "$transcript" "transcript for chunk $id"
-
-  start=$((i * chunk_seconds))
-  seconds="$(shitshow_chunk_duration "$i" "$total" "$chunk_seconds")"
-  printf '\n## Chunk %s — start %ss, duration %ss\n\n' "$id" "$start" "$seconds"
-  cat "$transcript"
-  printf '\n'
-  printed=$((printed + 1))
-done
-
-next=$((cursor + printed))
-printf '\nReview cursor remains at %s/%s. Printed through chunk %03d.\n' \
-  "$cursor" "$chunk_count" "$((next - 1))"
-printf 'After collaborative review: shitshow review:advance %s --count %s\n' \
-  "$meeting_id" "$printed"
+exec "$MISE_CONFIG_ROOT/libexec/review" \
+  "$usage_meeting_id" \
+  "$usage_count"

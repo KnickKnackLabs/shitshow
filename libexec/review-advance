@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+
+# Internal review-state mutation. The public task owns CLI parsing.
+
+set -euo pipefail
+umask 077
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo_root/lib/workspace.sh"
+source "$repo_root/lib/transcription.sh"
+
+load_review_state() {
+  review_state="$meeting_dir/review-state.json"
+  shitshow_require_regular_file "$review_state" "review state"
+  review_cursor="$(
+    jq -er '.cursor | select(type == "number" and . >= 0 and floor == .)' \
+      "$review_state" 2>/dev/null
+  )" || shitshow_die "invalid review state: $review_state"
+  jq -e '.audit | type == "array"' "$review_state" >/dev/null 2>&1 || \
+    shitshow_die "invalid review audit: $review_state"
+
+  if ! chunk_count="$(shitshow_read_config "$meeting_dir" '.chunk_count' 2>/dev/null)"; then
+    chunk_count=""
+  fi
+  [ -n "$chunk_count" ] || shitshow_die "transcription has not started"
+}
+
+require_completed_chunks() {
+  local index id
+  next_cursor=$((review_cursor + requested_count))
+  [ "$next_cursor" -le "$chunk_count" ] || \
+    shitshow_die "cursor would exceed chunk count $chunk_count"
+
+  for ((index = review_cursor; index < next_cursor; index++)); do
+    id="$(printf '%03d' "$index")"
+    shitshow_require_regular_file \
+      "$meeting_dir/transcripts/chunk-${id}.ok" \
+      "completed marker for chunk $id"
+  done
+}
+
+write_review_state() {
+  local temporary
+  temporary="$meeting_dir/.review-state.json.$$.$(shitshow_random_hex 2)"
+  # shellcheck disable=SC2016 # jq program variables are populated by --arg.
+  jq \
+    --arg at "$(shitshow_iso_now)" \
+    --arg actor "${SHITSHOW_REVIEW_ACTOR:-${USER:-unknown}}" \
+    --argjson from "$review_cursor" \
+    --argjson to "$next_cursor" \
+    --argjson count "$requested_count" \
+    '.cursor = $to | .audit += [{at:$at,actor:$actor,from:$from,to:$to,count:$count}]' \
+    "$review_state" > "$temporary"
+  chmod 600 "$temporary"
+  mv "$temporary" "$review_state"
+}
+
+release_review_lock() {
+  shitshow_release_lock "$review_lock"
+}
+
+main() {
+  meeting_id="${1:-}"
+  requested_count="${2:-1}"
+  [ -n "$meeting_id" ] || shitshow_die "meeting id is required"
+  [[ "$requested_count" =~ ^[1-9][0-9]*$ ]] || \
+    shitshow_die "count must be a positive integer"
+
+  meeting_dir="$(shitshow_require_meeting "$meeting_id")"
+  shitshow_verify_recording "$meeting_dir" >/dev/null
+  review_lock="$meeting_dir/.review.lock"
+  shitshow_acquire_lock "$review_lock" "review update"
+  trap release_review_lock EXIT
+
+  load_review_state
+  require_completed_chunks
+  write_review_state
+
+  printf 'meeting: %s\nreview: %s/%s\nadvanced: %s\n' \
+    "$meeting_id" "$next_cursor" "$chunk_count" "$requested_count"
+}
+
+main "$@"
