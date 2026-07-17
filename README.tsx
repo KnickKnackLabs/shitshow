@@ -127,6 +127,8 @@ const oses = workflowOses();
 const readme = (
   <>
     <Center>
+      <Raw>{`<img src="assets/jeff.webp" alt="Nicolas Cage laughing on a toilet in a decrepit restroom" width="800">\n\n`}</Raw>
+
       <Heading level={1}>{PROJECT.name}</Heading>
       <Paragraph><Bold>{PROJECT.oneLine}</Bold></Paragraph>
       <Paragraph>{PROJECT.tagline}</Paragraph>

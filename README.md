@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/jeff.webp" alt="Nicolas Cage laughing on a toilet in a decrepit restroom" width="800">
+
 # shitshow
 
 **A local-first workflow for turning private meeting recordings into reviewed records.**
