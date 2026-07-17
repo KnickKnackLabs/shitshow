@@ -70,7 +70,11 @@ function discoverTasks(dir = TASK_DIR, prefix = ""): TaskInfo[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.name.startsWith(".")) continue;
     const full = join(dir, entry.name);
-    const name = prefix ? `${prefix}:${entry.name}` : entry.name;
+    const name = entry.name === "_default"
+      ? prefix
+      : prefix
+        ? `${prefix}:${entry.name}`
+        : entry.name;
 
     if (entry.isDirectory()) {
       tasks.push(...discoverTasks(full, name));
@@ -152,10 +156,24 @@ const readme = (
 
     <Section title="Current status">
       <Paragraph>
-        {"The repository currently contains only the maintained KKL skeleton and its public safety boundary. Product implementation will arrive through reviewed pull requests."}
+        {"The first local workflow provides private ingestion, resumable foreground or background transcription, machine-readable status, and explicit incremental review."}
       </Paragraph>
       <Paragraph>
         {"The workflow grew from private internal dogfood, but this repository starts with fresh, sanitized history. No private meeting artifacts or personal paths were imported."}
+      </Paragraph>
+    </Section>
+
+    <Section title="Workflow">
+      <CodeBlock lang="bash">{`meeting_id=$(shitshow ingest recording.wav --name "Fictional planning call" --json | jq -r .meeting_id)
+shitshow transcribe:start "$meeting_id"
+shitshow status "$meeting_id"
+shitshow review "$meeting_id" --count 1
+shitshow review:advance "$meeting_id" --count 1`}</CodeBlock>
+      <Paragraph>
+        {"Managed meetings live under "}<Code>{"${XDG_DATA_HOME:-$HOME/.local/share}/shitshow/meetings"}</Code>{". Set "}<Code>SHITSHOW_DATA_DIR</Code>{" to use a different private managed root."}
+      </Paragraph>
+      <Paragraph>
+        {"Review never moves the cursor. Advance it only after the printed chunks have actually been reviewed. Use "}<Code>shitshow status &lt;meeting-id&gt; --json</Code>{" for automation."}
       </Paragraph>
     </Section>
 
@@ -220,7 +238,7 @@ codebase lint "$PWD"
 readme build --check
 git diff --check`}</CodeBlock>
       <Paragraph>
-        {"The bootstrap currently has "}<Bold>{`${testCount} tests`}</Bold>{", "}<Bold>{`${tasks.length} public tasks`}</Bold>{", and hosted validation on "}<Bold>{oses.join(" and ")}</Bold>{"."}
+        {"The project currently has "}<Bold>{`${testCount} tests`}</Bold>{", "}<Bold>{`${tasks.length} public tasks`}</Bold>{", and hosted validation on "}<Bold>{oses.join(" and ")}</Bold>{"."}
       </Paragraph>
     </Section>
 

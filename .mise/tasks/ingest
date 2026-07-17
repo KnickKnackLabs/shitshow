@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+#MISE description="Ingest local audio into a new private meeting workspace"
+#USAGE arg "<audio_file>" help="Local audio file to copy into managed storage"
+#USAGE flag "--name <name>" default="" help="Optional private display label"
+#USAGE flag "--json" default=#false help="Print machine-readable JSON"
+
+set -euo pipefail
+umask 077
+
+source "$MISE_CONFIG_ROOT/lib/common.sh"
+
+ss_require_command jq
+ss_require_command ffprobe
+
+audio_file="$usage_audio_file"
+name="${usage_name:-}"
+json="${usage_json:-false}"
+caller_dir="${SHITSHOW_CALLER_PWD:-$PWD}"
+
+if [[ "$audio_file" != /* ]]; then
+  audio_file="$caller_dir/$audio_file"
+fi
+[ -f "$audio_file" ] || ss_die "audio file not found: $audio_file"
+[ -r "$audio_file" ] || ss_die "audio file is not readable: $audio_file"
+if [[ "$name" =~ [[:cntrl:]] ]]; then
+  ss_die "name must not contain control characters"
+fi
+[ "${#name}" -le 120 ] || ss_die "name must be 120 characters or fewer"
+
+root="$(ss_meetings_root)"
+id="$(ss_new_meeting_id)"
+destination="$root/$id"
+[ ! -e "$destination" ] && [ ! -L "$destination" ] || ss_die "generated meeting id collision; retry ingest"
+temporary="$root/.ingest.$$.$(ss_random_hex 4)"
+
+extension="${audio_file##*.}"
+if [ "$extension" = "$audio_file" ]; then
+  extension=audio
+else
+  extension="$(printf '%s' "$extension" | tr '[:upper:]' '[:lower:]')"
+  [[ "$extension" =~ ^[a-z0-9]{1,10}$ ]] || extension=audio
+fi
+managed_name="recording.$extension"
+
+cleanup() {
+  if [ -d "$temporary" ] && [ ! -L "$temporary" ]; then
+    rm -rf "$temporary"
+  fi
+}
+trap cleanup EXIT
+
+mkdir -m 700 "$temporary"
+cp -- "$audio_file" "$temporary/$managed_name"
+chmod 600 "$temporary/$managed_name"
+
+source_sha="$(ss_sha256 "$audio_file")"
+copied_sha="$(ss_sha256 "$temporary/$managed_name")"
+[ "$copied_sha" = "$source_sha" ] || ss_die "copied recording checksum mismatch"
+duration="$(ss_duration "$temporary/$managed_name")"
+bytes="$(ss_file_size "$temporary/$managed_name")"
+ingested_at="$(ss_iso_now)"
+source_basename="$(basename "$audio_file")"
+
+# shellcheck disable=SC2016 # jq program variables are populated by --arg.
+ss_atomic_json_file "$temporary/meeting.json" -n \
+  --arg id "$id" \
+  --arg name "$name" \
+  --arg ingested_at "$ingested_at" \
+  --arg audio_file "$managed_name" \
+  --arg source_basename "$source_basename" \
+  --arg sha256 "$source_sha" \
+  --arg duration_seconds "$duration" \
+  --argjson bytes "$bytes" \
+  '{schema_version:1,id:$id,name:$name,ingested_at:$ingested_at,audio_file:$audio_file,source_basename:$source_basename,sha256:$sha256,duration_seconds:($duration_seconds|tonumber),bytes:$bytes}'
+ss_atomic_json_file "$temporary/review-state.json" -n \
+  '{schema_version:1,cursor:0,audit:[]}'
+
+mv "$temporary" "$destination"
+trap - EXIT
+
+if [ "$json" = true ]; then
+  jq -n \
+    --arg meeting_id "$id" \
+    --arg name "$name" \
+    --arg workspace "$destination" \
+    --arg sha256 "$source_sha" \
+    --arg duration_seconds "$duration" \
+    '{meeting_id:$meeting_id,name:$name,workspace:$workspace,status:"ingested",sha256:$sha256,duration_seconds:($duration_seconds|tonumber)}'
+else
+  printf 'meeting: %s\n' "$id"
+  if [ -n "$name" ]; then
+    printf 'name: %s\n' "$name"
+  fi
+  printf 'status: ingested\n'
+  printf 'duration: %.1f seconds\n' "$duration"
+  printf 'sha256: %s\n' "$source_sha"
+  printf 'workspace: %s\n' "$destination"
+fi

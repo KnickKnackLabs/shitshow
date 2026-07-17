@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+#MISE description="Advance review state after completed collaborative review"
+#USAGE arg "<meeting_id>" help="Managed meeting identifier"
+#USAGE flag "--count <count>" default="1" help="Number of reviewed chunks"
+
+set -euo pipefail
+umask 077
+
+source "$MISE_CONFIG_ROOT/lib/common.sh"
+source "$MISE_CONFIG_ROOT/lib/transcription.sh"
+
+meeting_id="$usage_meeting_id"
+count="$usage_count"
+[[ "$count" =~ ^[1-9][0-9]*$ ]] || ss_die "count must be a positive integer"
+
+dir="$(ss_require_meeting "$meeting_id")"
+ss_verify_recording "$dir" >/dev/null
+lock="$dir/.review.lock"
+ss_acquire_lock "$lock" "review update"
+cleanup() {
+  ss_release_lock "$lock"
+}
+trap cleanup EXIT
+
+review_state="$dir/review-state.json"
+ss_require_regular_file "$review_state" "review state"
+cursor="$(jq -er '.cursor | select(type == "number" and . >= 0 and floor == .)' "$review_state" 2>/dev/null)" || \
+  ss_die "invalid review state: $review_state"
+jq -e '.audit | type == "array"' "$review_state" >/dev/null 2>&1 || \
+  ss_die "invalid review audit: $review_state"
+if ! chunk_count="$(ss_read_config "$dir" '.chunk_count' 2>/dev/null)"; then
+  chunk_count=""
+fi
+[ -n "$chunk_count" ] || ss_die "transcription has not started"
+
+next=$((cursor + count))
+[ "$next" -le "$chunk_count" ] || ss_die "cursor would exceed chunk count $chunk_count"
+for ((i = cursor; i < next; i++)); do
+  id="$(printf '%03d' "$i")"
+  ss_require_regular_file "$dir/transcripts/chunk-${id}.ok" "completed marker for chunk $id"
+done
+
+state_tmp="$dir/.review-state.json.$$.$(ss_random_hex 2)"
+# shellcheck disable=SC2016 # jq program variables are populated by --arg.
+jq \
+  --arg at "$(ss_iso_now)" \
+  --arg actor "${SHITSHOW_REVIEW_ACTOR:-${USER:-unknown}}" \
+  --argjson from "$cursor" \
+  --argjson to "$next" \
+  --argjson count "$count" \
+  '.cursor = $to | .audit += [{at:$at,actor:$actor,from:$from,to:$to,count:$count}]' \
+  "$review_state" > "$state_tmp"
+chmod 600 "$state_tmp"
+mv "$state_tmp" "$review_state"
+
+printf 'meeting: %s\nreview: %s/%s\nadvanced: %s\n' \
+  "$meeting_id" "$next" "$chunk_count" "$count"

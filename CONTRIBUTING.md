@@ -67,7 +67,8 @@ shitshow/
 ├── CONTRIBUTING.md        # Repo-entry orientation
 ├── SECURITY.md            # Security and sensitive-data reporting
 ├── .mise/tasks/           # Thin public task entry points
-├── lib/                   # Shared implementation after real commands exist
+├── lib/                   # Sourced implementation modules (`*.sh`)
+├── libexec/               # Internal executables, not public tasks
 └── test/                  # BATS tests using synthetic fixtures
 ```
 

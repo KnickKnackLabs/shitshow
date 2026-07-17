@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+#MISE description="Start resumable local transcription in the background"
+#USAGE arg "<meeting_id>" help="Managed meeting identifier"
+#USAGE flag "--chunk-seconds <seconds>" default="300" help="Chunk length in seconds"
+#USAGE flag "--model <model>" default="qwen3-asr-0.6b" help="Local Qwen ASR model"
+#USAGE flag "--prompt-file <path>" default="" help="Optional private ASR prompt to import"
+
+set -euo pipefail
+umask 077
+
+source "$MISE_CONFIG_ROOT/lib/common.sh"
+source "$MISE_CONFIG_ROOT/lib/transcription.sh"
+
+meeting_id="$usage_meeting_id"
+chunk_seconds="$usage_chunk_seconds"
+model="$usage_model"
+prompt_file="${usage_prompt_file:-}"
+caller_dir="${SHITSHOW_CALLER_PWD:-$PWD}"
+
+[[ "$chunk_seconds" =~ ^[1-9][0-9]*$ ]] || ss_die "chunk seconds must be a positive integer"
+case "$model" in
+  qwen3-asr-0.6b|qwen3-asr-1.7b) ;;
+  *) ss_die "unsupported model: $model" ;;
+esac
+
+dir="$(ss_require_meeting "$meeting_id")"
+control_lock="$dir/.transcribe-control.lock"
+ss_acquire_lock "$control_lock" "transcription job control"
+cleanup() {
+  ss_release_lock "$control_lock"
+}
+trap cleanup EXIT
+
+if pid="$(ss_job_pid "$dir")"; then
+  ss_die "transcription already running with pid $pid"
+fi
+
+if [ -n "$prompt_file" ] && [[ "$prompt_file" != /* ]]; then
+  prompt_file="$caller_dir/$prompt_file"
+fi
+if [ -n "$prompt_file" ]; then
+  [ -f "$prompt_file" ] && [ -r "$prompt_file" ] || ss_die "prompt file not found or unreadable: $prompt_file"
+fi
+
+for output in transcribe-job.out transcribe-job.err; do
+  path="$dir/$output"
+  [ ! -L "$path" ] || ss_die "background output must not be a symlink: $path"
+  : > "$path"
+  chmod 600 "$path"
+done
+
+token="$(ss_random_hex 16)"
+SHITSHOW_JOB_PROMPT_FILE="$prompt_file" \
+  nohup "$MISE_CONFIG_ROOT/libexec/transcribe-job" \
+  "$meeting_id" "$token" "$chunk_seconds" "$model" \
+  > "$dir/transcribe-job.out" 2> "$dir/transcribe-job.err" < /dev/null &
+launcher_pid=$!
+
+pid=""
+for ((attempt = 0; attempt < 50; attempt++)); do
+  if pid="$(ss_job_pid "$dir")"; then
+    break
+  fi
+  if ! kill -0 "$launcher_pid" 2>/dev/null; then
+    break
+  fi
+  sleep 0.1
+done
+
+if [ -z "$pid" ]; then
+  recorded_status="$(ss_job_state "$dir")"
+  if [ "$recorded_status" = complete ]; then
+    printf 'meeting: %s\nstatus: complete\n' "$meeting_id"
+    exit 0
+  fi
+  printf 'ERROR: transcription did not start (status: %s)\n' "$recorded_status" >&2
+  if [ -f "$dir/transcribe-job.err" ]; then
+    tail -20 "$dir/transcribe-job.err" >&2
+  fi
+  exit 1
+fi
+
+printf 'meeting: %s\nstatus: running\npid: %s\n' "$meeting_id" "$pid"

@@ -12,7 +12,9 @@ load test_helper
     .mise/tasks/test \
     .mise/tasks/doctor \
     .github/workflows/test.yml \
-    lib/.gitkeep
+    lib/common.sh \
+    lib/transcription.sh \
+    libexec/transcribe-job
   do
     [ -e "$REPO_DIR/$path" ]
   done
