@@ -4,10 +4,8 @@
 
 # shitshow
 
-![status: incubating](https://img.shields.io/badge/status-incubating-orange?style=flat)
 [![tests: 16](https://img.shields.io/badge/tests-16-brightgreen?style=flat)](test/)
 ![lints: 9](https://img.shields.io/badge/lints-9-blue?style=flat)
-![CI: ubuntu-latest + macos-latest](https://img.shields.io/badge/CI-ubuntu--latest%20%2B%20macos--latest-4EAA25?style=flat)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat)](LICENSE)
 
 </div>
@@ -56,5 +54,5 @@ Public tasks include examples in `--help`. See [CONTRIBUTING.md](CONTRIBUTING.md
 ---
 
 <sub>
-Generated with [KnickKnackLabs/readme](https://github.com/KnickKnackLabs/readme).
+Generated with <a href="https://github.com/KnickKnackLabs/readme">readme</a>.
 </sub></div>

@@ -23,7 +23,6 @@ import {
 
 const REPO_DIR = resolve(import.meta.dirname);
 const TEST_DIR = join(REPO_DIR, "test");
-const WORKFLOW = join(REPO_DIR, ".github/workflows/test.yml");
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -50,12 +49,6 @@ function configuredLintCount(): number {
   return [...block.matchAll(/"([^"]+)"/g)].length;
 }
 
-function workflowOses(): string {
-  if (!existsSync(WORKFLOW)) return "pending";
-  const value = read(WORKFLOW).match(/os:\s*\[([^\]]+)\]/)?.[1];
-  return value?.split(",").map((os) => os.trim()).filter(Boolean).join(" + ") || "pending";
-}
-
 const testCount = countBatsTests();
 const lintCount = configuredLintCount();
 
@@ -65,10 +58,8 @@ const readme = (
       <Raw>{`<img src="assets/jeff.webp" alt="Nicolas Cage laughing on a toilet in a decrepit restroom" width="800">\n\n`}</Raw>
       <Heading level={1}>shitshow</Heading>
       <Badges>
-        <Badge label="status" value="incubating" color="orange" />
         <Badge label="tests" value={`${testCount}`} color="brightgreen" href="test/" />
         <Badge label="lints" value={`${lintCount}`} color="blue" />
-        <Badge label="CI" value={workflowOses()} color="4EAA25" />
         <Badge label="license" value="MIT" color="blue" href="LICENSE" />
       </Badges>
     </Center>
@@ -120,7 +111,7 @@ mise run review:advance "$meeting_id"`}</CodeBlock>
     <Center>
       <HR />
       <Sub>
-        Generated with <Link href="https://github.com/KnickKnackLabs/readme">KnickKnackLabs/readme</Link>.
+        <Raw>{`Generated with <a href="https://github.com/KnickKnackLabs/readme">readme</a>.`}</Raw>
       </Sub>
     </Center>
   </>
