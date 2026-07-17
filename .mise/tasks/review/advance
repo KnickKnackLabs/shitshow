@@ -2,6 +2,8 @@
 #MISE description="Advance review state after completed collaborative review"
 #USAGE arg "<meeting_id>" help="Managed meeting identifier"
 #USAGE flag "--count <count>" default="1" help="Number of reviewed chunks"
+#USAGE example "shitshow review:advance 20260716T145938Z-a1b2c3d4" header="Mark one reviewed chunk complete"
+#USAGE example "shitshow review:advance 20260716T145938Z-a1b2c3d4 --count 2" header="Mark two reviewed chunks complete"
 
 set -euo pipefail
 umask 077

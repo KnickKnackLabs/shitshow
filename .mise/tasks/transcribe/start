@@ -4,6 +4,8 @@
 #USAGE flag "--chunk-seconds <seconds>" default="300" help="Chunk length in seconds"
 #USAGE flag "--model <model>" default="qwen3-asr-0.6b" help="Local Qwen ASR model"
 #USAGE flag "--prompt-file <path>" default="" help="Optional private ASR prompt to import"
+#USAGE example "shitshow transcribe:start 20260716T145938Z-a1b2c3d4" header="Start transcription in the background"
+#USAGE example "shitshow transcribe:start 20260716T145938Z-a1b2c3d4 --model qwen3-asr-1.7b" header="Start with the larger local model"
 
 set -euo pipefail
 umask 077

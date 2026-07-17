@@ -31,6 +31,24 @@ load test_helper
   [[ "$output" == *"pre-commit"* ]]
 }
 
+@test "public product tasks include installed-command examples" {
+  for pair in \
+    "ingest|ingest" \
+    "transcribe/_default|transcribe" \
+    "transcribe/start|transcribe:start" \
+    "transcribe/stop|transcribe:stop" \
+    "status|status" \
+    "review/_default|review" \
+    "review/advance|review:advance"
+  do
+    task_path="${pair%%|*}"
+    command="${pair#*|}"
+    run grep -E "^#USAGE example \"shitshow ${command}( |\")" \
+      "$REPO_DIR/.mise/tasks/$task_path"
+    [ "$status" -eq 0 ]
+  done
+}
+
 @test "public documentation states the private-data boundary" {
   run grep -F "Never commit recordings, transcripts" "$REPO_DIR/README.md"
   [ "$status" -eq 0 ]

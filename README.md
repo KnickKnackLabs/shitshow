@@ -7,7 +7,7 @@
 Turn the shitshow into a reviewed record.
 
 ![status: incubating](https://img.shields.io/badge/status-incubating-orange?style=flat)
-[![tests: 14](https://img.shields.io/badge/tests-14-brightgreen?style=flat)](test/)
+[![tests: 15](https://img.shields.io/badge/tests-15-brightgreen?style=flat)](test/)
 ![lints: 9](https://img.shields.io/badge/lints-9-blue?style=flat)
 ![CI: ubuntu-latest + macos-latest](https://img.shields.io/badge/CI-ubuntu--latest%20%2B%20macos--latest-4EAA25?style=flat)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat)](LICENSE)
@@ -119,7 +119,7 @@ readme build --check
 git diff --check
 ```
 
-The project currently has **14 tests**, **9 public tasks**, and hosted validation on **ubuntu-latest and macos-latest**.
+The project currently has **15 tests**, **9 public tasks**, and hosted validation on **ubuntu-latest and macos-latest**.
 
 <div align="center">
 
