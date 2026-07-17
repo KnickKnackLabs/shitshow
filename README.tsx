@@ -170,7 +170,7 @@ shitshow status "$meeting_id"
 shitshow review "$meeting_id" --count 1
 shitshow review:advance "$meeting_id" --count 1`}</CodeBlock>
       <Paragraph>
-        {"Managed meetings live under "}<Code>{"${XDG_DATA_HOME:-$HOME/.local/share}/shitshow/meetings"}</Code>{". Set "}<Code>SHITSHOW_DATA_DIR</Code>{" to use a different private managed root."}
+        {"Managed meetings live under "}<Code>{"${XDG_DATA_HOME:-$HOME/.local/share}/shitshow/meetings"}</Code>{". Set "}<Code>SHITSHOW_DATA_DIR</Code>{" to use a different private managed store."}
       </Paragraph>
       <Paragraph>
         {"Review never moves the cursor. Advance it only after the printed chunks have actually been reviewed. Use "}<Code>shitshow status &lt;meeting-id&gt; --json</Code>{" for automation."}

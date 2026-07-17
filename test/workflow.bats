@@ -3,7 +3,7 @@
 load test_helper
 
 @test "ingest creates a private checksum-safe managed workspace" {
-  run shitshow ingest fixture.wav --name "Fictional planning call" --json
+  run bash -c 'umask 000; shitshow ingest fixture.wav --name "Fictional planning call" --json'
   [ "$status" -eq 0 ]
 
   meeting_id="$(jq -r '.meeting_id' <<< "$output")"
@@ -15,6 +15,8 @@ load test_helper
   [ "$(portable_mode "$SHITSHOW_DATA_DIR")" = 700 ]
   [ "$(portable_mode "$meeting_dir")" = 700 ]
   [ "$(portable_mode "$meeting_dir/recording.wav")" = 600 ]
+  [ "$(portable_mode "$meeting_dir/meeting.json")" = 600 ]
+  [ "$(portable_mode "$meeting_dir/review-state.json")" = 600 ]
   [ "$(jq -r '.source_basename' "$meeting_dir/meeting.json")" = fixture.wav ]
   ! grep -Fq "$SHITSHOW_CALLER_PWD" "$meeting_dir/meeting.json"
 
@@ -24,7 +26,27 @@ load test_helper
   [ "$(jq -r '.transcription.status' <<< "$output")" = not-started ]
 }
 
-@test "ingest rejects symlinked or group-readable managed roots" {
+@test "read-only tasks do not create the managed meetings store" {
+  meeting_id=20260716T145938Z-a1b2c3d4
+  rm -rf "$SHITSHOW_DATA_DIR"
+
+  run shitshow status "$meeting_id"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"managed data directory not found"* ]]
+  [ ! -e "$SHITSHOW_DATA_DIR" ]
+
+  run shitshow review "$meeting_id"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"managed data directory not found"* ]]
+  [ ! -e "$SHITSHOW_DATA_DIR" ]
+
+  run shitshow transcribe:stop "$meeting_id"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"managed data directory not found"* ]]
+  [ ! -e "$SHITSHOW_DATA_DIR" ]
+}
+
+@test "ingest rejects symlinked or group-readable managed stores" {
   real_root="$BATS_TEST_TMPDIR/real-data"
   mkdir -m 700 "$real_root"
   ln -s "$real_root" "$BATS_TEST_TMPDIR/link-data"

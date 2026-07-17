@@ -20,27 +20,27 @@ prompt_file="${usage_prompt_file:-}"
 caller_dir="${SHITSHOW_CALLER_PWD:-$PWD}"
 monkeys_bin="${SHITSHOW_MONKEYS_BIN:-monkeys}"
 
-[[ "$chunk_seconds" =~ ^[1-9][0-9]*$ ]] || ss_die "chunk seconds must be a positive integer"
+[[ "$chunk_seconds" =~ ^[1-9][0-9]*$ ]] || shitshow_die "chunk seconds must be a positive integer"
 case "$model" in
   qwen3-asr-0.6b|qwen3-asr-1.7b) ;;
-  *) ss_die "unsupported model: $model" ;;
+  *) shitshow_die "unsupported model: $model" ;;
 esac
-ss_require_command ffmpeg
-ss_require_command ffprobe
-ss_require_command jq
-command -v "$monkeys_bin" >/dev/null 2>&1 || ss_die "monkeys is required"
+shitshow_require_command ffmpeg
+shitshow_require_command ffprobe
+shitshow_require_command jq
+command -v "$monkeys_bin" >/dev/null 2>&1 || shitshow_die "monkeys is required"
 
-dir="$(ss_require_meeting "$meeting_id")"
-audio="$(ss_audio_path "$dir")"
-ss_verify_recording "$dir" >/dev/null
+dir="$(shitshow_require_meeting "$meeting_id")"
+audio="$(shitshow_audio_path "$dir")"
+shitshow_verify_recording "$dir" >/dev/null
 
 for managed_dir in chunks transcripts; do
   path="$dir/$managed_dir"
-  [ ! -L "$path" ] || ss_die "$managed_dir directory must not be a symlink"
+  [ ! -L "$path" ] || shitshow_die "$managed_dir directory must not be a symlink"
   if [ ! -e "$path" ]; then
     mkdir -m 700 "$path"
   fi
-  ss_assert_private_dir "$path" "$managed_dir directory"
+  shitshow_assert_private_dir "$path" "$managed_dir directory"
 done
 
 has_artifacts=false
@@ -57,53 +57,53 @@ if [ -n "$prompt_file" ]; then
   if [[ "$prompt_file" != /* ]]; then
     prompt_file="$caller_dir/$prompt_file"
   fi
-  [ -f "$prompt_file" ] && [ -r "$prompt_file" ] || ss_die "prompt file not found or unreadable: $prompt_file"
-  provided_prompt_sha="$(ss_sha256 "$prompt_file")"
-  if ! old_prompt_sha="$(ss_read_config "$dir" '.prompt_sha // ""' 2>/dev/null)"; then
+  [ -f "$prompt_file" ] && [ -r "$prompt_file" ] || shitshow_die "prompt file not found or unreadable: $prompt_file"
+  provided_prompt_sha="$(shitshow_sha256 "$prompt_file")"
+  if ! old_prompt_sha="$(shitshow_read_config "$dir" '.prompt_sha // ""' 2>/dev/null)"; then
     old_prompt_sha=""
   fi
   if [ "$has_artifacts" = true ] && [ "$provided_prompt_sha" != "$old_prompt_sha" ]; then
-    ss_die "cannot change prompt after transcription artifacts exist"
+    shitshow_die "cannot change prompt after transcription artifacts exist"
   fi
-  prompt_tmp="$dir/.asr-prompt.txt.$$.$(ss_random_hex 2)"
+  prompt_tmp="$dir/.asr-prompt.txt.$$.$(shitshow_random_hex 2)"
   cp -- "$prompt_file" "$prompt_tmp"
   chmod 600 "$prompt_tmp"
   mv "$prompt_tmp" "$managed_prompt"
   prompt_sha="$provided_prompt_sha"
 elif [ -e "$managed_prompt" ] || [ -L "$managed_prompt" ]; then
-  ss_require_regular_file "$managed_prompt" "managed ASR prompt"
-  prompt_sha="$(ss_sha256 "$managed_prompt")"
+  shitshow_require_regular_file "$managed_prompt" "managed ASR prompt"
+  prompt_sha="$(shitshow_sha256 "$managed_prompt")"
 fi
 
 if [ -f "$dir/transcribe-config.json" ]; then
-  if ! old_chunk_seconds="$(ss_read_config "$dir" '.chunk_seconds' 2>/dev/null)"; then
+  if ! old_chunk_seconds="$(shitshow_read_config "$dir" '.chunk_seconds' 2>/dev/null)"; then
     old_chunk_seconds=""
   fi
-  if ! old_model="$(ss_read_config "$dir" '.model' 2>/dev/null)"; then
+  if ! old_model="$(shitshow_read_config "$dir" '.model' 2>/dev/null)"; then
     old_model=""
   fi
-  if ! old_prompt_sha="$(ss_read_config "$dir" '.prompt_sha // ""' 2>/dev/null)"; then
+  if ! old_prompt_sha="$(shitshow_read_config "$dir" '.prompt_sha // ""' 2>/dev/null)"; then
     old_prompt_sha=""
   fi
   if [ "$has_artifacts" = true ] && \
       { [ "$old_chunk_seconds" != "$chunk_seconds" ] || [ "$old_model" != "$model" ] || [ "$old_prompt_sha" != "$prompt_sha" ]; }; then
-    ss_die "cannot change chunk size, model, or prompt after transcription artifacts exist"
+    shitshow_die "cannot change chunk size, model, or prompt after transcription artifacts exist"
   fi
 fi
 
 lock="$dir/.transcribe.lock"
-ss_acquire_lock "$lock" "transcription"
+shitshow_acquire_lock "$lock" "transcription"
 cleanup() {
-  ss_release_lock "$lock"
+  shitshow_release_lock "$lock"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-duration="$(ss_duration "$audio")"
-total="$(ss_total_seconds "$duration")"
-chunk_count="$(ss_chunk_count "$total" "$chunk_seconds")"
-config_tmp="$dir/.transcribe-config.json.$$.$(ss_random_hex 2)"
+duration="$(shitshow_duration "$audio")"
+total="$(shitshow_total_seconds "$duration")"
+chunk_count="$(shitshow_chunk_count "$total" "$chunk_seconds")"
+config_tmp="$dir/.transcribe-config.json.$$.$(shitshow_random_hex 2)"
 jq -n \
   --arg model "$model" \
   --arg prompt_sha "$prompt_sha" \
@@ -121,41 +121,41 @@ if [ ! -e "$log" ]; then
   : > "$log"
   chmod 600 "$log"
 else
-  ss_require_regular_file "$log" "transcription log"
+  shitshow_require_regular_file "$log" "transcription log"
 fi
 printf '[%s] run pid=%s model=%s chunk_seconds=%s chunks=%s\n' \
-  "$(ss_iso_now)" "$$" "$model" "$chunk_seconds" "$chunk_count" >> "$log"
+  "$(shitshow_iso_now)" "$$" "$model" "$chunk_seconds" "$chunk_count" >> "$log"
 
 asr_command=("$monkeys_bin" hear --no-cache --model "$model")
 if [ -s "$managed_prompt" ]; then
   asr_command+=(--prompt-file "$managed_prompt")
-  printf '[%s] using managed prompt sha256=%s\n' "$(ss_iso_now)" "$prompt_sha" >> "$log"
+  printf '[%s] using managed prompt sha256=%s\n' "$(shitshow_iso_now)" "$prompt_sha" >> "$log"
 fi
 
-ss_write_progress "$dir" "$total" "$chunk_seconds" "$chunk_count"
+shitshow_write_progress "$dir" "$total" "$chunk_seconds" "$chunk_count"
 
 for ((i = 0; i < chunk_count; i++)); do
   id="$(printf '%03d' "$i")"
   start=$((i * chunk_seconds))
-  seconds="$(ss_chunk_duration "$i" "$total" "$chunk_seconds")"
+  seconds="$(shitshow_chunk_duration "$i" "$total" "$chunk_seconds")"
   chunk="$dir/chunks/chunk-${id}.wav"
   transcript="$dir/transcripts/chunk-${id}.txt"
   ok_marker="$dir/transcripts/chunk-${id}.ok"
   failed_marker="$dir/transcripts/chunk-${id}.failed"
 
   for managed_file in "$chunk" "$transcript" "$ok_marker" "$failed_marker"; do
-    [ ! -L "$managed_file" ] || ss_die "managed transcription artifact must not be a symlink: $managed_file"
+    [ ! -L "$managed_file" ] || shitshow_die "managed transcription artifact must not be a symlink: $managed_file"
   done
 
   if [ -f "$ok_marker" ] && [ -f "$transcript" ]; then
-    printf '[%s] reusing completed chunk %s\n' "$(ss_iso_now)" "$id" >> "$log"
+    printf '[%s] reusing completed chunk %s\n' "$(shitshow_iso_now)" "$id" >> "$log"
     continue
   fi
 
   if [ ! -s "$chunk" ]; then
     printf '[%s] extracting chunk %s start=%s seconds=%s\n' \
-      "$(ss_iso_now)" "$id" "$start" "$seconds" >> "$log"
-    chunk_tmp="$dir/chunks/.chunk-${id}.$$.$(ss_random_hex 2).wav"
+      "$(shitshow_iso_now)" "$id" "$start" "$seconds" >> "$log"
+    chunk_tmp="$dir/chunks/.chunk-${id}.$$.$(shitshow_random_hex 2).wav"
     ffmpeg -hide_banner -loglevel error -y \
       -ss "$start" -t "$seconds" -i "$audio" \
       -ar 16000 -ac 1 -c:a pcm_s16le "$chunk_tmp" >> "$log" 2>&1
@@ -163,8 +163,8 @@ for ((i = 0; i < chunk_count; i++)); do
     mv "$chunk_tmp" "$chunk"
   fi
 
-  printf '[%s] transcribing chunk %s\n' "$(ss_iso_now)" "$id" >> "$log"
-  transcript_tmp="$dir/transcripts/.chunk-${id}.$$.$(ss_random_hex 2).txt"
+  printf '[%s] transcribing chunk %s\n' "$(shitshow_iso_now)" "$id" >> "$log"
+  transcript_tmp="$dir/transcripts/.chunk-${id}.$$.$(shitshow_random_hex 2).txt"
   rm -f "$failed_marker" "$transcript_tmp"
 
   if "${asr_command[@]}" "$chunk" > "$transcript_tmp" 2>> "$log"; then
@@ -177,14 +177,14 @@ for ((i = 0; i < chunk_count; i++)); do
     rm -f "$transcript_tmp" "$ok_marker"
     printf '%s\n' "$status" > "$failed_marker"
     chmod 600 "$failed_marker"
-    ss_write_progress "$dir" "$total" "$chunk_seconds" "$chunk_count"
-    printf '[%s] failed chunk %s exit=%s\n' "$(ss_iso_now)" "$id" "$status" >> "$log"
+    shitshow_write_progress "$dir" "$total" "$chunk_seconds" "$chunk_count"
+    printf '[%s] failed chunk %s exit=%s\n' "$(shitshow_iso_now)" "$id" "$status" >> "$log"
     exit "$status"
   fi
 
-  ss_write_progress "$dir" "$total" "$chunk_seconds" "$chunk_count"
+  shitshow_write_progress "$dir" "$total" "$chunk_seconds" "$chunk_count"
 done
 
-printf '[%s] complete\n' "$(ss_iso_now)" >> "$log"
+printf '[%s] complete\n' "$(shitshow_iso_now)" >> "$log"
 printf 'meeting: %s\nstatus: complete\nchunks: %s\ntranscript: %s\n' \
   "$meeting_id" "$chunk_count" "$dir/transcript.combined.txt"

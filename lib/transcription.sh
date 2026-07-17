@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 
-ss_total_seconds() {
+shitshow_total_seconds() {
   awk -v duration="$1" 'BEGIN { print int(duration + 0.999) }'
 }
 
-ss_chunk_count() {
+shitshow_chunk_count() {
   awk -v total="$1" -v step="$2" 'BEGIN { print int((total + step - 1) / step) }'
 }
 
-ss_chunk_duration() {
+shitshow_chunk_duration() {
   local index="$1"
   local total="$2"
   local step="$3"
@@ -22,7 +22,7 @@ ss_chunk_duration() {
   fi
 }
 
-ss_marker_count() {
+shitshow_marker_count() {
   local dir="$1"
   local suffix="$2"
   local count=0 file
@@ -39,12 +39,12 @@ ss_marker_count() {
         count=$((count + 1))
       done
       ;;
-    *) ss_die "unsupported marker suffix: $suffix" ;;
+    *) shitshow_die "unsupported marker suffix: $suffix" ;;
   esac
   printf '%s\n' "$count"
 }
 
-ss_write_progress() {
+shitshow_write_progress() {
   local dir="$1"
   local total="$2"
   local step="$3"
@@ -52,15 +52,15 @@ ss_write_progress() {
   local progress_tmp combined_tmp
   local i id start seconds transcript status
 
-  progress_tmp="$dir/.transcribe-progress.tsv.$$.$(ss_random_hex 2)"
-  combined_tmp="$dir/.transcript.combined.txt.$$.$(ss_random_hex 2)"
+  progress_tmp="$dir/.transcribe-progress.tsv.$$.$(shitshow_random_hex 2)"
+  combined_tmp="$dir/.transcript.combined.txt.$$.$(shitshow_random_hex 2)"
   printf 'chunk\tstart\tseconds\tstatus\ttranscript\n' > "$progress_tmp"
   : > "$combined_tmp"
 
   for ((i = 0; i < count; i++)); do
     id="$(printf '%03d' "$i")"
     start=$((i * step))
-    seconds="$(ss_chunk_duration "$i" "$total" "$step")"
+    seconds="$(shitshow_chunk_duration "$i" "$total" "$step")"
     transcript="$dir/transcripts/chunk-${id}.txt"
 
     if [ -f "$dir/transcripts/chunk-${id}.ok" ] && [ -f "$transcript" ]; then
@@ -88,7 +88,7 @@ ss_write_progress() {
   mv "$combined_tmp" "$dir/transcript.combined.txt"
 }
 
-ss_read_config() {
+shitshow_read_config() {
   local dir="$1"
   local expression="$2"
   local config="$dir/transcribe-config.json"
@@ -97,12 +97,12 @@ ss_read_config() {
   jq -er "$expression" "$config" 2>/dev/null
 }
 
-ss_acquire_lock() {
+shitshow_acquire_lock() {
   local lock="$1"
   local label="$2"
   local old_pid
 
-  [ ! -L "$lock" ] || ss_die "$label lock must not be a symlink: $lock"
+  [ ! -L "$lock" ] || shitshow_die "$label lock must not be a symlink: $lock"
   if mkdir -m 700 "$lock" 2>/dev/null; then
     printf '%s\n' "$$" > "$lock/pid"
     chmod 600 "$lock/pid"
@@ -113,17 +113,17 @@ ss_acquire_lock() {
     old_pid=""
   fi
   if [[ "$old_pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$old_pid" 2>/dev/null; then
-    ss_die "$label already active with pid $old_pid"
+    shitshow_die "$label already active with pid $old_pid"
   fi
 
   rm -f "$lock/pid"
-  rmdir "$lock" 2>/dev/null || ss_die "$label stale lock contains unexpected entries: $lock"
+  rmdir "$lock" 2>/dev/null || shitshow_die "$label stale lock contains unexpected entries: $lock"
   mkdir -m 700 "$lock"
   printf '%s\n' "$$" > "$lock/pid"
   chmod 600 "$lock/pid"
 }
 
-ss_release_lock() {
+shitshow_release_lock() {
   local lock="$1"
   local owner
   if ! owner="$(cat "$lock/pid" 2>/dev/null)"; then
@@ -131,6 +131,6 @@ ss_release_lock() {
   fi
   if [ "$owner" = "$$" ]; then
     rm -f "$lock/pid"
-    rmdir "$lock" 2>/dev/null || ss_die "lock contains unexpected entries: $lock"
+    rmdir "$lock" 2>/dev/null || shitshow_die "lock contains unexpected entries: $lock"
   fi
 }

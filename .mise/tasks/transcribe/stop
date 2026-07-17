@@ -4,15 +4,14 @@
 #USAGE example "shitshow transcribe:stop 20260716T145938Z-a1b2c3d4" header="Pause verified background transcription"
 
 set -euo pipefail
-umask 077
 
 source "$MISE_CONFIG_ROOT/lib/common.sh"
 
 meeting_id="$usage_meeting_id"
-dir="$(ss_require_meeting "$meeting_id")"
+dir="$(shitshow_require_meeting "$meeting_id")"
 state="$dir/transcribe-job.json"
 
-if ! pid="$(ss_job_pid "$dir")"; then
+if ! pid="$(shitshow_job_pid "$dir")"; then
   recorded_status=""
   if [ -f "$state" ]; then
     if ! recorded_status="$(jq -r '.status // ""' "$state" 2>/dev/null)"; then
@@ -37,4 +36,4 @@ for ((attempt = 0; attempt < 100; attempt++)); do
   sleep 0.1
 done
 
-ss_die "verified transcription process $pid did not stop after SIGTERM"
+shitshow_die "verified transcription process $pid did not stop after SIGTERM"

@@ -12,18 +12,18 @@ chunk_seconds="${3:-300}"
 model="${4:-qwen3-asr-0.6b}"
 prompt_file="${SHITSHOW_JOB_PROMPT_FILE:-}"
 
-ss_validate_meeting_id "$meeting_id"
-[[ "$token" =~ ^[0-9a-f]{32}$ ]] || ss_die "invalid transcription job token"
-dir="$(ss_require_meeting "$meeting_id")"
+shitshow_validate_meeting_id "$meeting_id"
+[[ "$token" =~ ^[0-9a-f]{32}$ ]] || shitshow_die "invalid transcription job token"
+dir="$(shitshow_require_meeting "$meeting_id")"
 state="$dir/transcribe-job.json"
-[ ! -L "$state" ] || ss_die "transcription job state must not be a symlink"
+[ ! -L "$state" ] || shitshow_die "transcription job state must not be a symlink"
 
 write_state() {
   local status="$1"
   local exit_code="${2:-}"
   local finished_at="${3:-}"
   local temporary
-  temporary="$dir/.transcribe-job.json.$$.$(ss_random_hex 2)"
+  temporary="$dir/.transcribe-job.json.$$.$(shitshow_random_hex 2)"
   jq -n \
     --arg status "$status" \
     --arg token "$token" \
@@ -37,7 +37,7 @@ write_state() {
   mv "$temporary" "$state"
 }
 
-started_at="$(ss_iso_now)"
+started_at="$(shitshow_iso_now)"
 write_state running
 
 args=(transcribe "$meeting_id" --chunk-seconds "$chunk_seconds" --model "$model")
@@ -70,12 +70,12 @@ status=$?
 set -e
 
 if [ "$stopping" = true ] || [ "$status" -eq 130 ] || [ "$status" -eq 143 ]; then
-  write_state paused "$status" "$(ss_iso_now)"
+  write_state paused "$status" "$(shitshow_iso_now)"
   exit 0
 elif [ "$status" -eq 0 ]; then
-  write_state complete 0 "$(ss_iso_now)"
+  write_state complete 0 "$(shitshow_iso_now)"
   exit 0
 else
-  write_state failed "$status" "$(ss_iso_now)"
+  write_state failed "$status" "$(shitshow_iso_now)"
   exit "$status"
 fi

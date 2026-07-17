@@ -7,7 +7,7 @@
 Turn the shitshow into a reviewed record.
 
 ![status: incubating](https://img.shields.io/badge/status-incubating-orange?style=flat)
-[![tests: 15](https://img.shields.io/badge/tests-15-brightgreen?style=flat)](test/)
+[![tests: 16](https://img.shields.io/badge/tests-16-brightgreen?style=flat)](test/)
 ![lints: 9](https://img.shields.io/badge/lints-9-blue?style=flat)
 ![CI: ubuntu-latest + macos-latest](https://img.shields.io/badge/CI-ubuntu--latest%20%2B%20macos--latest-4EAA25?style=flat)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat)](LICENSE)
@@ -40,7 +40,7 @@ shitshow review "$meeting_id" --count 1
 shitshow review:advance "$meeting_id" --count 1
 ```
 
-Managed meetings live under `${XDG_DATA_HOME:-$HOME/.local/share}/shitshow/meetings`. Set `SHITSHOW_DATA_DIR` to use a different private managed root.
+Managed meetings live under `${XDG_DATA_HOME:-$HOME/.local/share}/shitshow/meetings`. Set `SHITSHOW_DATA_DIR` to use a different private managed store.
 
 Review never moves the cursor. Advance it only after the printed chunks have actually been reviewed. Use `shitshow status <meeting-id> --json` for automation.
 
@@ -119,7 +119,7 @@ readme build --check
 git diff --check
 ```
 
-The project currently has **15 tests**, **9 public tasks**, and hosted validation on **ubuntu-latest and macos-latest**.
+The project currently has **16 tests**, **9 public tasks**, and hosted validation on **ubuntu-latest and macos-latest**.
 
 <div align="center">
 

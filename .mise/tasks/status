@@ -6,19 +6,18 @@
 #USAGE example "shitshow status 20260716T145938Z-a1b2c3d4 --json" header="Inspect machine-readable status"
 
 set -euo pipefail
-umask 077
 
 source "$MISE_CONFIG_ROOT/lib/common.sh"
 source "$MISE_CONFIG_ROOT/lib/transcription.sh"
 
 meeting_id="$usage_meeting_id"
 json="${usage_json:-false}"
-dir="$(ss_require_meeting "$meeting_id")"
-audio="$(ss_audio_path "$dir")"
-expected="$(ss_expected_sha "$dir")"
-actual="$(ss_sha256 "$audio")"
+dir="$(shitshow_require_meeting "$meeting_id")"
+audio="$(shitshow_audio_path "$dir")"
+expected="$(shitshow_expected_sha "$dir")"
+actual="$(shitshow_sha256 "$audio")"
 duration="$(jq -er '.duration_seconds' "$dir/meeting.json")"
-bytes="$(ss_file_size "$audio")"
+bytes="$(shitshow_file_size "$audio")"
 name="$(jq -r '.name // ""' "$dir/meeting.json")"
 
 health=ok
@@ -31,9 +30,9 @@ if [ "$actual" != "$expected" ]; then
 fi
 
 review_state="$dir/review-state.json"
-ss_require_regular_file "$review_state" "review state"
+shitshow_require_regular_file "$review_state" "review state"
 review_cursor="$(jq -er '.cursor | select(type == "number" and . >= 0 and floor == .)' "$review_state" 2>/dev/null)" || \
-  ss_die "invalid review state: $review_state"
+  shitshow_die "invalid review state: $review_state"
 
 chunk_count=0
 chunk_seconds=0
@@ -41,14 +40,14 @@ model=""
 complete=0
 failed=0
 transcription=not-started
-job_state="$(ss_job_state "$dir")"
+job_state="$(shitshow_job_state "$dir")"
 config_chunk_count=""
-if config_chunk_count="$(ss_read_config "$dir" '.chunk_count' 2>/dev/null)"; then
+if config_chunk_count="$(shitshow_read_config "$dir" '.chunk_count' 2>/dev/null)"; then
   chunk_count="$config_chunk_count"
-  chunk_seconds="$(ss_read_config "$dir" '.chunk_seconds')"
-  model="$(ss_read_config "$dir" '.model')"
-  complete="$(ss_marker_count "$dir" ok)"
-  failed="$(ss_marker_count "$dir" failed)"
+  chunk_seconds="$(shitshow_read_config "$dir" '.chunk_seconds')"
+  model="$(shitshow_read_config "$dir" '.model')"
+  complete="$(shitshow_marker_count "$dir" ok)"
+  failed="$(shitshow_marker_count "$dir" failed)"
   if [ "$job_state" = running ]; then
     transcription=running
   elif [ "$job_state" = stale ]; then
