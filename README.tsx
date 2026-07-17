@@ -73,20 +73,31 @@ const readme = (
     </Paragraph>
 
     <Section title="Install">
-      <CodeBlock lang="bash">{`gh repo clone KnickKnackLabs/shitshow
-cd shitshow
-mise trust
-mise install`}</CodeBlock>
+      <Paragraph>Install the command for your user:</Paragraph>
+      <CodeBlock lang="bash">{`shiv install shitshow`}</CodeBlock>
+      <Paragraph>Or declare it for a project in <Code>mise.toml</Code>:</Paragraph>
+      <CodeBlock lang="toml">{`[plugins]
+shiv = "https://github.com/KnickKnackLabs/vfox-shiv"
+
+[tools]
+"shiv:shitshow" = "0.1"`}</CodeBlock>
+      <CodeBlock lang="bash">{`mise install`}</CodeBlock>
     </Section>
 
     <Section title="Run">
-      <CodeBlock lang="bash">{`result="$(mise run ingest recording.wav --name "Fictional planning call" --json)"
+      <CodeBlock lang="bash">{`# Ingest the audio once and retain its managed meeting ID.
+result="$(shitshow ingest recording.wav --name "Fictional planning call" --json)"
 meeting_id="$(jq -r .meeting_id <<<"$result")"
 
-mise run transcribe:start "$meeting_id"
-mise run status "$meeting_id"
-mise run review "$meeting_id"
-mise run review:advance "$meeting_id"`}</CodeBlock>
+# Start local ASR in the background. Completed chunks survive restarts.
+shitshow transcribe:start "$meeting_id"
+
+# Inspect progress, then print the next completed chunk without moving review state.
+shitshow status "$meeting_id"
+shitshow review "$meeting_id"
+
+# Record advancement only after the displayed chunk has been reviewed.
+shitshow review:advance "$meeting_id"`}</CodeBlock>
     </Section>
 
     <Details summary="Operational notes">
@@ -111,7 +122,7 @@ mise run review:advance "$meeting_id"`}</CodeBlock>
     <Center>
       <HR />
       <Sub>
-        <Raw>{`Generated with <a href="https://github.com/KnickKnackLabs/readme">readme</a>.`}</Raw>
+        <Raw>{`Generated with <a href="https://github.com/KnickKnackLabs/readme">readme</a>`}</Raw>
       </Sub>
     </Center>
   </>

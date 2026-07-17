@@ -14,23 +14,42 @@ Long recordings are copied into private, checksum-bound workspaces and transcrib
 
 ## Install
 
+Install the command for your user:
+
 ```bash
-gh repo clone KnickKnackLabs/shitshow
-cd shitshow
-mise trust
+shiv install shitshow
+```
+
+Or declare it for a project in `mise.toml`:
+
+```toml
+[plugins]
+shiv = "https://github.com/KnickKnackLabs/vfox-shiv"
+
+[tools]
+"shiv:shitshow" = "0.1"
+```
+
+```bash
 mise install
 ```
 
 ## Run
 
 ```bash
-result="$(mise run ingest recording.wav --name "Fictional planning call" --json)"
+# Ingest the audio once and retain its managed meeting ID.
+result="$(shitshow ingest recording.wav --name "Fictional planning call" --json)"
 meeting_id="$(jq -r .meeting_id <<<"$result")"
 
-mise run transcribe:start "$meeting_id"
-mise run status "$meeting_id"
-mise run review "$meeting_id"
-mise run review:advance "$meeting_id"
+# Start local ASR in the background. Completed chunks survive restarts.
+shitshow transcribe:start "$meeting_id"
+
+# Inspect progress, then print the next completed chunk without moving review state.
+shitshow status "$meeting_id"
+shitshow review "$meeting_id"
+
+# Record advancement only after the displayed chunk has been reviewed.
+shitshow review:advance "$meeting_id"
 ```
 
 <details>
@@ -54,5 +73,5 @@ Public tasks include examples in `--help`. See [CONTRIBUTING.md](CONTRIBUTING.md
 ---
 
 <sub>
-Generated with <a href="https://github.com/KnickKnackLabs/readme">readme</a>.
+Generated with <a href="https://github.com/KnickKnackLabs/readme">readme</a>
 </sub></div>
