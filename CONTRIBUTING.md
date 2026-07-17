@@ -66,17 +66,22 @@ shitshow/
 ├── README.md              # Generated; do not edit directly
 ├── CONTRIBUTING.md        # Repo-entry orientation
 ├── SECURITY.md            # Security and sensitive-data reporting
-├── .mise/tasks/           # Thin public task entry points
-├── lib/                   # Shared implementation after real commands exist
+├── .mise/tasks/           # Thin public CLI adapters and usage metadata
+├── lib/
+│   ├── workspace.sh       # Private meeting storage, integrity, and atomic state
+│   ├── transcription.sh   # Resumable chunk configuration and transcript assembly
+│   └── transcription-job.sh # Verified background process identity and state
+├── libexec/               # Command-shaped workflows with readable `main` functions
 └── test/                  # BATS tests using synthetic fixtures
 ```
 
-Choose implementation modules by independently changing pipeline concepts,
-such as workspace state,
-transcription jobs,
-and review state.
-Keep public task files thin.
-Do not collect unrelated helpers into a generic utility file.
+Public task files should only translate the mise-generated task API
+into an internal executable call.
+Each `libexec` workflow should expose a short narrative `main`
+and name the substantial operations it sequences.
+Sourced `lib/` modules should own only contracts shared across commands.
+Do not collect unrelated helpers into a generic utility file,
+and do not extract tiny functions merely to make a file look shorter.
 
 ## Local setup
 

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+#MISE description="Stop verified background transcription while preserving progress"
+#USAGE arg "<meeting_id>" help="Managed meeting identifier"
+#USAGE example "shitshow transcribe:stop 20260716T145938Z-a1b2c3d4" header="Pause verified background transcription"
+
+set -euo pipefail
+
+exec "$MISE_CONFIG_ROOT/libexec/transcribe-stop" "$usage_meeting_id"

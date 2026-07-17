@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+umask 077
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo_root/lib/workspace.sh"
+
+write_job_state() {
+  local status="$1"
+  local exit_code="${2:-}"
+  local finished_at="${3:-}"
+  local temporary
+  temporary="$meeting_directory/.transcribe-job.json.$$.$(shitshow_random_hex 2)"
+  jq -n \
+    --arg status "$status" \
+    --arg token "$job_token" \
+    --arg started_at "$started_at" \
+    --arg finished_at "$finished_at" \
+    --arg exit_code "$exit_code" \
+    --argjson pid "$$" \
+    '{
+      schema_version: 1,
+      status: $status,
+      pid: $pid,
+      token: $token,
+      started_at: $started_at,
+      finished_at: (
+        if $finished_at == "" then null else $finished_at end
+      ),
+      exit_code: (
+        if $exit_code == "" then null else ($exit_code | tonumber) end
+      )
+    }' \
+    > "$temporary"
+  chmod 600 "$temporary"
+  mv "$temporary" "$job_state"
+}
+
+# shellcheck disable=SC2329 # Invoked by the signal trap below.
+stop_transcription_child() {
+  stopping=true
+  if [[ "$child_pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$child_pid" 2>/dev/null; then
+    if ! kill -TERM "$child_pid" 2>/dev/null; then
+      printf 'Could not signal transcription child %s\n' "$child_pid" >&2
+    fi
+  fi
+}
+
+run_transcription_child() {
+  local args=(transcribe "$meeting_id" --chunk-seconds "$chunk_seconds" --model "$model")
+  if [ -n "$prompt_file" ]; then
+    args+=(--prompt-file "$prompt_file")
+  fi
+
+  (
+    cd "$repo_root"
+    SHITSHOW_CALLER_PWD="/" mise run "${args[@]}"
+  ) &
+  child_pid=$!
+}
+
+finish_job() {
+  local child_status="$1"
+  if [ "$stopping" = true ] || [ "$child_status" -eq 130 ] || [ "$child_status" -eq 143 ]; then
+    write_job_state paused "$child_status" "$(shitshow_iso_now)"
+    return 0
+  elif [ "$child_status" -eq 0 ]; then
+    write_job_state complete 0 "$(shitshow_iso_now)"
+    return 0
+  else
+    write_job_state failed "$child_status" "$(shitshow_iso_now)"
+    return "$child_status"
+  fi
+}
+
+main() {
+  meeting_id="${1:-}"
+  job_token="${2:-}"
+  chunk_seconds="${3:-300}"
+  model="${4:-qwen3-asr-0.6b}"
+  prompt_file="${SHITSHOW_JOB_PROMPT_FILE:-}"
+
+  shitshow_validate_meeting_id "$meeting_id"
+  [[ "$job_token" =~ ^[0-9a-f]{32}$ ]] || shitshow_die "invalid transcription job token"
+  meeting_directory="$(shitshow_require_meeting "$meeting_id")"
+  job_state="$meeting_directory/transcribe-job.json"
+  [ ! -L "$job_state" ] || shitshow_die "transcription job state must not be a symlink"
+
+  started_at="$(shitshow_iso_now)"
+  child_pid=""
+  stopping=false
+  write_job_state running
+  trap stop_transcription_child TERM INT
+
+  run_transcription_child
+  set +e
+  wait "$child_pid"
+  child_status=$?
+  set -e
+  finish_job "$child_status"
+}
+
+main "$@"

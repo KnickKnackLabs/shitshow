@@ -1,0 +1,271 @@
+#!/usr/bin/env bash
+
+# Internal resumable transcription pipeline. The public task owns CLI parsing.
+
+set -euo pipefail
+umask 077
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo_root/lib/workspace.sh"
+source "$repo_root/lib/transcription.sh"
+
+validate_request() {
+  [[ "$chunk_seconds" =~ ^[1-9][0-9]*$ ]] || \
+    shitshow_die "chunk seconds must be a positive integer"
+  case "$model" in
+    qwen3-asr-0.6b|qwen3-asr-1.7b) ;;
+    *) shitshow_die "unsupported model: $model" ;;
+  esac
+
+  shitshow_require_command ffmpeg
+  shitshow_require_command ffprobe
+  shitshow_require_command jq
+  command -v "$monkeys_bin" >/dev/null 2>&1 || shitshow_die "monkeys is required"
+}
+
+load_meeting() {
+  meeting_directory="$(shitshow_require_meeting "$meeting_id")"
+  audio="$(shitshow_audio_path "$meeting_directory")"
+  shitshow_verify_recording "$meeting_directory" >/dev/null
+}
+
+prepare_artifact_directories() {
+  local name path artifact
+  for name in chunks transcripts; do
+    path="$meeting_directory/$name"
+    [ ! -L "$path" ] || shitshow_die "$name directory must not be a symlink"
+    if [ ! -e "$path" ]; then
+      mkdir -m 700 "$path"
+    fi
+    shitshow_assert_private_dir "$path" "$name directory"
+  done
+
+  has_artifacts=false
+  for artifact in "$meeting_directory"/chunks/* "$meeting_directory"/transcripts/*; do
+    if [ -e "$artifact" ] || [ -L "$artifact" ]; then
+      has_artifacts=true
+      break
+    fi
+  done
+}
+
+resolve_prompt_source() {
+  if [ -n "$prompt_file" ] && [[ "$prompt_file" != /* ]]; then
+    prompt_file="$caller_directory/$prompt_file"
+  fi
+  if [ -n "$prompt_file" ]; then
+    [ -f "$prompt_file" ] && [ -r "$prompt_file" ] || \
+      shitshow_die "prompt file not found or unreadable: $prompt_file"
+  fi
+}
+
+prepare_managed_prompt() {
+  local provided_sha old_sha temporary
+  managed_prompt="$meeting_directory/asr-prompt.txt"
+  prompt_sha=""
+
+  if [ -n "$prompt_file" ]; then
+    provided_sha="$(shitshow_sha256 "$prompt_file")"
+    if ! old_sha="$(shitshow_read_config "$meeting_directory" '.prompt_sha // ""' 2>/dev/null)"; then
+      old_sha=""
+    fi
+    if [ "$has_artifacts" = true ] && [ "$provided_sha" != "$old_sha" ]; then
+      shitshow_die "cannot change prompt after transcription artifacts exist"
+    fi
+
+    temporary="$meeting_directory/.asr-prompt.txt.$$.$(shitshow_random_hex 2)"
+    cp -- "$prompt_file" "$temporary"
+    chmod 600 "$temporary"
+    mv "$temporary" "$managed_prompt"
+    prompt_sha="$provided_sha"
+  elif [ -e "$managed_prompt" ] || [ -L "$managed_prompt" ]; then
+    shitshow_require_regular_file "$managed_prompt" "managed ASR prompt"
+    prompt_sha="$(shitshow_sha256 "$managed_prompt")"
+  fi
+}
+
+require_compatible_resume_config() {
+  local config="$meeting_directory/transcribe-config.json"
+  local old_chunk_seconds old_model old_prompt_sha
+  if [ ! -f "$config" ]; then
+    return 0
+  fi
+
+  if ! old_chunk_seconds="$(shitshow_read_config "$meeting_directory" '.chunk_seconds' 2>/dev/null)"; then
+    old_chunk_seconds=""
+  fi
+  if ! old_model="$(shitshow_read_config "$meeting_directory" '.model' 2>/dev/null)"; then
+    old_model=""
+  fi
+  if ! old_prompt_sha="$(shitshow_read_config "$meeting_directory" '.prompt_sha // ""' 2>/dev/null)"; then
+    old_prompt_sha=""
+  fi
+
+  if [ "$has_artifacts" = true ] && \
+      { [ "$old_chunk_seconds" != "$chunk_seconds" ] ||
+        [ "$old_model" != "$model" ] ||
+        [ "$old_prompt_sha" != "$prompt_sha" ]; }; then
+    shitshow_die "cannot change chunk size, model, or prompt after transcription artifacts exist"
+  fi
+}
+
+write_transcription_config() {
+  local temporary
+  temporary="$meeting_directory/.transcribe-config.json.$$.$(shitshow_random_hex 2)"
+  duration="$(shitshow_duration "$audio")"
+  total_seconds="$(shitshow_total_seconds "$duration")"
+  chunk_count="$(shitshow_chunk_count "$total_seconds" "$chunk_seconds")"
+
+  jq -n \
+    --arg model "$model" \
+    --arg prompt_sha "$prompt_sha" \
+    --argjson duration_seconds "$duration" \
+    --argjson total_seconds "$total_seconds" \
+    --argjson chunk_seconds "$chunk_seconds" \
+    --argjson chunk_count "$chunk_count" \
+    '{
+      schema_version: 1,
+      duration_seconds: $duration_seconds,
+      total_seconds: $total_seconds,
+      chunk_seconds: $chunk_seconds,
+      chunk_count: $chunk_count,
+      model: $model,
+      prompt_sha: $prompt_sha
+    }' \
+    > "$temporary"
+  chmod 600 "$temporary"
+  mv "$temporary" "$meeting_directory/transcribe-config.json"
+}
+
+prepare_run_log() {
+  log="$meeting_directory/transcribe.log"
+  if [ ! -e "$log" ]; then
+    : > "$log"
+    chmod 600 "$log"
+  else
+    shitshow_require_regular_file "$log" "transcription log"
+  fi
+
+  printf '[%s] run pid=%s model=%s chunk_seconds=%s chunks=%s\n' \
+    "$(shitshow_iso_now)" "$$" "$model" "$chunk_seconds" "$chunk_count" >> "$log"
+  if [ -s "$managed_prompt" ]; then
+    printf '[%s] using managed prompt sha256=%s\n' \
+      "$(shitshow_iso_now)" "$prompt_sha" >> "$log"
+  fi
+}
+
+require_safe_chunk_paths() {
+  local path
+  for path in "$chunk" "$transcript" "$completed_marker" "$failed_marker"; do
+    [ ! -L "$path" ] || \
+      shitshow_die "managed transcription artifact must not be a symlink: $path"
+  done
+}
+
+extract_audio_chunk() {
+  local temporary
+  [ -s "$chunk" ] && return
+
+  printf '[%s] extracting chunk %s start=%s seconds=%s\n' \
+    "$(shitshow_iso_now)" "$chunk_id" "$chunk_start" "$chunk_duration" >> "$log"
+  temporary="$meeting_directory/chunks/.chunk-${chunk_id}.$$.$(shitshow_random_hex 2).wav"
+  ffmpeg -hide_banner -loglevel error -y \
+    -ss "$chunk_start" -t "$chunk_duration" -i "$audio" \
+    -ar 16000 -ac 1 -c:a pcm_s16le "$temporary" >> "$log" 2>&1
+  chmod 600 "$temporary"
+  mv "$temporary" "$chunk"
+}
+
+transcribe_audio_chunk() {
+  local temporary status
+  local command=("$monkeys_bin" hear --no-cache --model "$model")
+  if [ -s "$managed_prompt" ]; then
+    command+=(--prompt-file "$managed_prompt")
+  fi
+
+  printf '[%s] transcribing chunk %s\n' "$(shitshow_iso_now)" "$chunk_id" >> "$log"
+  temporary="$meeting_directory/transcripts/.chunk-${chunk_id}.$$.$(shitshow_random_hex 2).txt"
+  rm -f "$failed_marker" "$temporary"
+
+  if "${command[@]}" "$chunk" > "$temporary" 2>> "$log"; then
+    chmod 600 "$temporary"
+    mv "$temporary" "$transcript"
+    : > "$completed_marker"
+    chmod 600 "$completed_marker"
+    return
+  else
+    status=$?
+  fi
+
+  rm -f "$temporary" "$completed_marker"
+  printf '%s\n' "$status" > "$failed_marker"
+  chmod 600 "$failed_marker"
+  shitshow_write_progress "$meeting_directory" "$total_seconds" "$chunk_seconds" "$chunk_count"
+  printf '[%s] failed chunk %s exit=%s\n' \
+    "$(shitshow_iso_now)" "$chunk_id" "$status" >> "$log"
+  return "$status"
+}
+
+process_chunk() {
+  local index="$1"
+  chunk_id="$(printf '%03d' "$index")"
+  chunk_start=$((index * chunk_seconds))
+  chunk_duration="$(shitshow_chunk_duration "$index" "$total_seconds" "$chunk_seconds")"
+  chunk="$meeting_directory/chunks/chunk-${chunk_id}.wav"
+  transcript="$meeting_directory/transcripts/chunk-${chunk_id}.txt"
+  completed_marker="$meeting_directory/transcripts/chunk-${chunk_id}.ok"
+  failed_marker="$meeting_directory/transcripts/chunk-${chunk_id}.failed"
+
+  require_safe_chunk_paths
+  if [ -f "$completed_marker" ] && [ -f "$transcript" ]; then
+    printf '[%s] reusing completed chunk %s\n' \
+      "$(shitshow_iso_now)" "$chunk_id" >> "$log"
+    return
+  fi
+
+  extract_audio_chunk
+  transcribe_audio_chunk
+  shitshow_write_progress "$meeting_directory" "$total_seconds" "$chunk_seconds" "$chunk_count"
+}
+
+release_transcription_lock() {
+  shitshow_release_lock "$transcription_lock"
+}
+
+main() {
+  meeting_id="${1:-}"
+  chunk_seconds="${2:-300}"
+  model="${3:-qwen3-asr-0.6b}"
+  prompt_file="${4:-}"
+  [ -n "$meeting_id" ] || shitshow_die "meeting id is required"
+  caller_directory="${SHITSHOW_CALLER_PWD:-$PWD}"
+  monkeys_bin="${SHITSHOW_MONKEYS_BIN:-monkeys}"
+
+  validate_request
+  load_meeting
+  prepare_artifact_directories
+  resolve_prompt_source
+  prepare_managed_prompt
+  require_compatible_resume_config
+
+  transcription_lock="$meeting_directory/.transcribe.lock"
+  shitshow_acquire_lock "$transcription_lock" "transcription"
+  trap release_transcription_lock EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  write_transcription_config
+  prepare_run_log
+  shitshow_write_progress "$meeting_directory" "$total_seconds" "$chunk_seconds" "$chunk_count"
+
+  local index
+  for ((index = 0; index < chunk_count; index++)); do
+    process_chunk "$index"
+  done
+
+  printf '[%s] complete\n' "$(shitshow_iso_now)" >> "$log"
+  printf 'meeting: %s\nstatus: complete\nchunks: %s\ntranscript: %s\n' \
+    "$meeting_id" "$chunk_count" "$meeting_directory/transcript.combined.txt"
+}
+
+main "$@"

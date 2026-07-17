@@ -58,6 +58,14 @@ else
   add_row "pre-commit" "!" "codebase unavailable; hook check skipped"
 fi
 
+for tool in ffmpeg ffprobe jq monkeys; do
+  if command -v "$tool" >/dev/null 2>&1; then
+    add_row "$tool" "✓" "available"
+  else
+    fail_check "$tool" "$tool is unavailable; run mise install"
+  fi
+done
+
 if command -v gum >/dev/null 2>&1; then
   printf '%s\n' "${rows[@]}" | gum table -s "$SEP" -c "CHECK,STATUS,DETAIL" -p --border normal
 else

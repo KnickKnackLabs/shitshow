@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+
+# Internal verified transcription stop. The public task owns CLI parsing.
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo_root/lib/workspace.sh"
+source "$repo_root/lib/transcription-job.sh"
+
+report_unverified_job() {
+  local state="$meeting_directory/transcribe-job.json"
+  local recorded_status=""
+  if [ -f "$state" ]; then
+    if ! recorded_status="$(jq -r '.status // ""' "$state" 2>/dev/null)"; then
+      recorded_status=""
+    fi
+  fi
+
+  if [ "$recorded_status" = running ]; then
+    printf 'meeting: %s\nstatus: stale\n' "$meeting_id"
+    printf 'Refusing to signal an unverified process.\n' >&2
+    return 2
+  fi
+  printf 'meeting: %s\nstatus: not-running\n' "$meeting_id"
+}
+
+stop_verified_job() {
+  local attempt
+  kill -TERM "$verified_pid"
+  for ((attempt = 0; attempt < 100; attempt++)); do
+    if ! kill -0 "$verified_pid" 2>/dev/null; then
+      printf 'meeting: %s\nstatus: paused\npid: %s\n' "$meeting_id" "$verified_pid"
+      return
+    fi
+    sleep 0.1
+  done
+  shitshow_die "verified transcription process $verified_pid did not stop after SIGTERM"
+}
+
+main() {
+  meeting_id="${1:-}"
+  [ -n "$meeting_id" ] || shitshow_die "meeting id is required"
+  meeting_directory="$(shitshow_require_meeting "$meeting_id")"
+
+  if ! verified_pid="$(shitshow_job_pid "$meeting_directory")"; then
+    report_unverified_job
+    return
+  fi
+  stop_verified_job
+}
+
+main "$@"

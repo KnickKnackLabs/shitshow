@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE description="Print completed transcript chunks at the review cursor"
+#USAGE arg "<meeting_id>" help="Managed meeting identifier"
+#USAGE flag "--count <count>" default="1" help="Number of chunks to print"
+#USAGE example "shitshow review 20260716T145938Z-a1b2c3d4" header="Print the next review chunk"
+#USAGE example "shitshow review 20260716T145938Z-a1b2c3d4 --count 2" header="Print two chunks without advancing"
+
+set -euo pipefail
+
+exec "$MISE_CONFIG_ROOT/libexec/review" \
+  "$usage_meeting_id" \
+  "$usage_count"

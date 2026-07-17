@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+
+# Resumable chunk configuration, progress, and transcript assembly.
+
+shitshow_total_seconds() {
+  awk -v duration="$1" 'BEGIN { print int(duration + 0.999) }'
+}
+
+shitshow_chunk_count() {
+  awk -v total="$1" -v step="$2" 'BEGIN { print int((total + step - 1) / step) }'
+}
+
+shitshow_chunk_duration() {
+  local index="$1"
+  local total="$2"
+  local step="$3"
+  local start remaining
+  start=$((index * step))
+  remaining=$((total - start))
+  if [ "$remaining" -lt "$step" ]; then
+    printf '%s\n' "$remaining"
+  else
+    printf '%s\n' "$step"
+  fi
+}
+
+shitshow_marker_count() {
+  local dir="$1"
+  local suffix="$2"
+  local count=0 file
+  case "$suffix" in
+    ok)
+      for file in "$dir"/transcripts/chunk-*.ok; do
+        [ -f "$file" ] || continue
+        count=$((count + 1))
+      done
+      ;;
+    failed)
+      for file in "$dir"/transcripts/chunk-*.failed; do
+        [ -f "$file" ] || continue
+        count=$((count + 1))
+      done
+      ;;
+    *) shitshow_die "unsupported marker suffix: $suffix" ;;
+  esac
+  printf '%s\n' "$count"
+}
+
+shitshow_write_progress() {
+  local dir="$1"
+  local total="$2"
+  local step="$3"
+  local count="$4"
+  local progress_tmp combined_tmp
+  local i id start seconds transcript status
+
+  progress_tmp="$dir/.transcribe-progress.tsv.$$.$(shitshow_random_hex 2)"
+  combined_tmp="$dir/.transcript.combined.txt.$$.$(shitshow_random_hex 2)"
+  printf 'chunk\tstart\tseconds\tstatus\ttranscript\n' > "$progress_tmp"
+  : > "$combined_tmp"
+
+  for ((i = 0; i < count; i++)); do
+    id="$(printf '%03d' "$i")"
+    start=$((i * step))
+    seconds="$(shitshow_chunk_duration "$i" "$total" "$step")"
+    transcript="$dir/transcripts/chunk-${id}.txt"
+
+    if [ -f "$dir/transcripts/chunk-${id}.ok" ] && [ -f "$transcript" ]; then
+      status=ok
+    elif [ -f "$dir/transcripts/chunk-${id}.failed" ]; then
+      status=failed
+    else
+      status=pending
+    fi
+
+    printf '%s\t%s\t%s\t%s\ttranscripts/chunk-%s.txt\n' \
+      "$id" "$start" "$seconds" "$status" "$id" >> "$progress_tmp"
+
+    if [ "$status" = ok ]; then
+      {
+        printf '\n\n## Chunk %s — start %ss, duration %ss — ok\n\n' \
+          "$id" "$start" "$seconds"
+        cat "$transcript"
+      } >> "$combined_tmp"
+    fi
+  done
+
+  chmod 600 "$progress_tmp" "$combined_tmp"
+  mv "$progress_tmp" "$dir/transcribe-progress.tsv"
+  mv "$combined_tmp" "$dir/transcript.combined.txt"
+}
+
+shitshow_read_config() {
+  local dir="$1"
+  local expression="$2"
+  local config="$dir/transcribe-config.json"
+  [ ! -L "$config" ] || return 1
+  [ -f "$config" ] || return 1
+  jq -er "$expression" "$config" 2>/dev/null
+}

@@ -7,7 +7,7 @@
 Turn the shitshow into a reviewed record.
 
 ![status: incubating](https://img.shields.io/badge/status-incubating-orange?style=flat)
-[![tests: 4](https://img.shields.io/badge/tests-4-brightgreen?style=flat)](test/)
+[![tests: 16](https://img.shields.io/badge/tests-16-brightgreen?style=flat)](test/)
 ![lints: 9](https://img.shields.io/badge/lints-9-blue?style=flat)
 ![CI: ubuntu-latest + macos-latest](https://img.shields.io/badge/CI-ubuntu--latest%20%2B%20macos--latest-4EAA25?style=flat)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat)](LICENSE)
@@ -26,9 +26,23 @@ It does not claim that raw ASR output is authoritative meeting minutes, and it d
 
 ## Current status
 
-The repository currently contains only the maintained KKL skeleton and its public safety boundary. Product implementation will arrive through reviewed pull requests.
+The first local workflow provides private ingestion, resumable foreground or background transcription, machine-readable status, and explicit incremental review.
 
 The workflow grew from private internal dogfood, but this repository starts with fresh, sanitized history. No private meeting artifacts or personal paths were imported.
+
+## Workflow
+
+```bash
+meeting_id=$(shitshow ingest recording.wav --name "Fictional planning call" --json | jq -r .meeting_id)
+shitshow transcribe:start "$meeting_id"
+shitshow status "$meeting_id"
+shitshow review "$meeting_id" --count 1
+shitshow review:advance "$meeting_id" --count 1
+```
+
+Managed meetings live under `${XDG_DATA_HOME:-$HOME/.local/share}/shitshow/meetings`. Set `SHITSHOW_DATA_DIR` to use a different private managed store.
+
+Review never moves the cursor. Advance it only after the printed chunks have actually been reviewed. Use `shitshow status <meeting-id> --json` for automation.
 
 ## Tool boundaries
 
@@ -65,10 +79,17 @@ Edit `README.tsx`, then run `readme build`. Do not edit generated `README.md` di
 
 ## Tasks
 
-| Task              | Description                   |
-| ----------------- | ----------------------------- |
-| `mise run doctor` | Check local development setup |
-| `mise run test`   | Run BATS tests                |
+| Task                        | Description                                                      |
+| --------------------------- | ---------------------------------------------------------------- |
+| `mise run doctor`           | Check local development setup                                    |
+| `mise run ingest`           | Ingest local audio into a new private meeting workspace          |
+| `mise run review`           | Print completed transcript chunks at the review cursor           |
+| `mise run review:advance`   | Advance review state after completed collaborative review        |
+| `mise run status`           | Show recording, transcription, and review state                  |
+| `mise run test`             | Run BATS tests                                                   |
+| `mise run transcribe`       | Transcribe a managed meeting locally in resumable chunks         |
+| `mise run transcribe:start` | Start resumable local transcription in the background            |
+| `mise run transcribe:stop`  | Stop verified background transcription while preserving progress |
 
 <details>
 <summary><b>Current convention checks</b></summary>
@@ -98,7 +119,7 @@ readme build --check
 git diff --check
 ```
 
-The bootstrap currently has **4 tests**, **2 public tasks**, and hosted validation on **ubuntu-latest and macos-latest**.
+The project currently has **16 tests**, **9 public tasks**, and hosted validation on **ubuntu-latest and macos-latest**.
 
 <div align="center">
 

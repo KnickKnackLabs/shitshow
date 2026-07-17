@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+
+# Internal status collection and presentation. The public task owns CLI parsing.
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo_root/lib/workspace.sh"
+source "$repo_root/lib/transcription.sh"
+source "$repo_root/lib/transcription-job.sh"
+
+load_recording_status() {
+  local audio
+  audio="$(shitshow_audio_path "$meeting_dir")"
+  expected_sha="$(shitshow_expected_sha "$meeting_dir")"
+  actual_sha="$(shitshow_sha256 "$audio")"
+  duration="$(jq -er '.duration_seconds' "$meeting_dir/meeting.json")"
+  audio_bytes="$(shitshow_file_size "$audio")"
+  meeting_name="$(jq -r '.name // ""' "$meeting_dir/meeting.json")"
+
+  checksum_status=ok
+  if [ "$actual_sha" != "$expected_sha" ]; then
+    checksum_status=mismatch
+    mark_unhealthy 3
+  fi
+}
+
+load_review_status() {
+  local state="$meeting_dir/review-state.json"
+  shitshow_require_regular_file "$state" "review state"
+  review_cursor="$(
+    jq -er '.cursor | select(type == "number" and . >= 0 and floor == .)' \
+      "$state" 2>/dev/null
+  )" || shitshow_die "invalid review state: $state"
+}
+
+load_transcription_status() {
+  chunk_count=0
+  chunk_seconds=0
+  model=""
+  completed_chunks=0
+  failed_chunks=0
+  transcription_status=not-started
+
+  local job_state config_chunk_count=""
+  job_state="$(shitshow_job_state "$meeting_dir")"
+  if ! config_chunk_count="$(shitshow_read_config "$meeting_dir" '.chunk_count' 2>/dev/null)"; then
+    config_chunk_count=""
+  fi
+
+  if [ -n "$config_chunk_count" ]; then
+    chunk_count="$config_chunk_count"
+    chunk_seconds="$(shitshow_read_config "$meeting_dir" '.chunk_seconds')"
+    model="$(shitshow_read_config "$meeting_dir" '.model')"
+    completed_chunks="$(shitshow_marker_count "$meeting_dir" ok)"
+    failed_chunks="$(shitshow_marker_count "$meeting_dir" failed)"
+    classify_configured_transcription "$job_state"
+  else
+    classify_unconfigured_transcription "$job_state"
+  fi
+}
+
+classify_configured_transcription() {
+  local job_state="$1"
+  if [ "$job_state" = running ]; then
+    transcription_status=running
+  elif [ "$job_state" = stale ]; then
+    transcription_status=stale
+    mark_unhealthy 4
+  elif [ "$completed_chunks" -eq "$chunk_count" ]; then
+    transcription_status=complete
+  elif [ "$failed_chunks" -gt 0 ]; then
+    transcription_status=failed
+  else
+    transcription_status=paused
+  fi
+}
+
+classify_unconfigured_transcription() {
+  local job_state="$1"
+  if [ "$job_state" = running ]; then
+    transcription_status=running
+  elif [ "$job_state" = stale ]; then
+    transcription_status=stale
+    mark_unhealthy 4
+  fi
+}
+
+mark_unhealthy() {
+  health=error
+  exit_status="$1"
+}
+
+validate_review_position() {
+  if [ "$chunk_count" -gt 0 ] && [ "$review_cursor" -gt "$chunk_count" ]; then
+    mark_unhealthy 5
+  fi
+}
+
+recording_status_json() {
+  jq -n \
+    --arg checksum "$checksum_status" \
+    --arg expected_sha256 "$expected_sha" \
+    --arg actual_sha256 "$actual_sha" \
+    --argjson duration_seconds "$duration" \
+    --argjson bytes "$audio_bytes" \
+    '{
+      checksum: $checksum,
+      expected_sha256: $expected_sha256,
+      actual_sha256: $actual_sha256,
+      duration_seconds: $duration_seconds,
+      bytes: $bytes
+    }'
+}
+
+transcription_status_json() {
+  jq -n \
+    --arg status "$transcription_status" \
+    --arg model "$model" \
+    --argjson chunks_complete "$completed_chunks" \
+    --argjson chunks_failed "$failed_chunks" \
+    --argjson chunk_count "$chunk_count" \
+    --argjson chunk_seconds "$chunk_seconds" \
+    '{
+      status: $status,
+      model: (if $model == "" then null else $model end),
+      chunks_complete: $chunks_complete,
+      chunks_failed: $chunks_failed,
+      chunk_count: $chunk_count,
+      chunk_seconds: $chunk_seconds
+    }'
+}
+
+review_status_json() {
+  jq -n \
+    --argjson cursor "$review_cursor" \
+    --argjson total "$chunk_count" \
+    '{
+      cursor: $cursor,
+      total: $total
+    }'
+}
+
+render_json_status() {
+  local recording transcription review
+  recording="$(recording_status_json)"
+  transcription="$(transcription_status_json)"
+  review="$(review_status_json)"
+
+  jq -n \
+    --arg health "$health" \
+    --arg meeting_id "$meeting_id" \
+    --arg name "$meeting_name" \
+    --arg workspace "$meeting_dir" \
+    --argjson recording "$recording" \
+    --argjson transcription "$transcription" \
+    --argjson review "$review" \
+    '{
+      health: $health,
+      meeting_id: $meeting_id,
+      name: $name,
+      workspace: $workspace,
+      recording: $recording,
+      transcription: $transcription,
+      review: $review
+    }'
+}
+
+render_human_status() {
+  printf 'meeting: %s\n' "$meeting_id"
+  if [ -n "$meeting_name" ]; then
+    printf 'name: %s\n' "$meeting_name"
+  fi
+  printf 'health: %s\n' "$health"
+  printf 'checksum: %s\n' "$checksum_status"
+  printf 'duration: %.1f seconds\n' "$duration"
+  printf 'audio bytes: %s\n' "$audio_bytes"
+  printf 'transcription: %s\n' "$transcription_status"
+  if [ "$chunk_count" -gt 0 ]; then
+    printf 'chunks: %s/%s complete, %s failed, %ss each\n' \
+      "$completed_chunks" "$chunk_count" "$failed_chunks" "$chunk_seconds"
+    printf 'model: %s\n' "$model"
+    printf 'review: %s/%s\n' "$review_cursor" "$chunk_count"
+  else
+    printf 'review: %s\n' "$review_cursor"
+  fi
+  printf 'workspace: %s\n' "$meeting_dir"
+}
+
+main() {
+  meeting_id="${1:-}"
+  json_output="${2:-false}"
+  [ -n "$meeting_id" ] || shitshow_die "meeting id is required"
+  meeting_dir="$(shitshow_require_meeting "$meeting_id")"
+  health=ok
+  exit_status=0
+
+  load_recording_status
+  load_review_status
+  load_transcription_status
+  validate_review_position
+
+  if [ "$json_output" = true ]; then
+    render_json_status
+  else
+    render_human_status
+  fi
+  exit "$exit_status"
+}
+
+main "$@"

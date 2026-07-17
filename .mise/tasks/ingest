@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#MISE description="Ingest local audio into a new private meeting workspace"
+#USAGE arg "<audio_file>" help="Local audio file to copy into managed storage"
+#USAGE flag "--name <name>" default="" help="Optional private display label"
+#USAGE flag "--json" default=#false help="Print machine-readable JSON"
+#USAGE example "shitshow ingest ./meeting.wav --name 'Weekly planning'" header="Ingest and label local audio"
+#USAGE example "shitshow ingest ./meeting.wav --json" header="Return the new meeting as JSON"
+
+set -euo pipefail
+
+exec "$MISE_CONFIG_ROOT/libexec/ingest" \
+  "$usage_audio_file" \
+  "${usage_name:-}" \
+  "${usage_json:-false}"

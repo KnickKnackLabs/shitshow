@@ -12,7 +12,17 @@ load test_helper
     .mise/tasks/test \
     .mise/tasks/doctor \
     .github/workflows/test.yml \
-    lib/.gitkeep
+    lib/workspace.sh \
+    lib/transcription.sh \
+    lib/transcription-job.sh \
+    libexec/ingest \
+    libexec/status \
+    libexec/review \
+    libexec/review-advance \
+    libexec/transcribe \
+    libexec/transcribe-start \
+    libexec/transcribe-stop \
+    libexec/transcribe-job
   do
     [ -e "$REPO_DIR/$path" ]
   done
@@ -27,6 +37,24 @@ load test_helper
   run shitshow doctor
   [ "$status" -eq 0 ]
   [[ "$output" == *"pre-commit"* ]]
+}
+
+@test "public product tasks include installed-command examples" {
+  for pair in \
+    "ingest|ingest" \
+    "transcribe/_default|transcribe" \
+    "transcribe/start|transcribe:start" \
+    "transcribe/stop|transcribe:stop" \
+    "status|status" \
+    "review/_default|review" \
+    "review/advance|review:advance"
+  do
+    task_path="${pair%%|*}"
+    command="${pair#*|}"
+    run grep -E "^#USAGE example \"shitshow ${command}( |\")" \
+      "$REPO_DIR/.mise/tasks/$task_path"
+    [ "$status" -eq 0 ]
+  done
 }
 
 @test "public documentation states the private-data boundary" {
