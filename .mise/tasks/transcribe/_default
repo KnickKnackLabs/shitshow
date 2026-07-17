@@ -124,9 +124,9 @@ fi
 printf '[%s] run pid=%s model=%s chunk_seconds=%s chunks=%s\n' \
   "$(ss_iso_now)" "$$" "$model" "$chunk_seconds" "$chunk_count" >> "$log"
 
-prompt_args=()
+asr_command=("$monkeys_bin" hear --no-cache --model "$model")
 if [ -s "$managed_prompt" ]; then
-  prompt_args=(--prompt-file "$managed_prompt")
+  asr_command+=(--prompt-file "$managed_prompt")
   printf '[%s] using managed prompt sha256=%s\n' "$(ss_iso_now)" "$prompt_sha" >> "$log"
 fi
 
@@ -165,8 +165,7 @@ for ((i = 0; i < chunk_count; i++)); do
   transcript_tmp="$dir/transcripts/.chunk-${id}.$$.$(ss_random_hex 2).txt"
   rm -f "$failed_marker" "$transcript_tmp"
 
-  if "$monkeys_bin" hear --no-cache --model "$model" "${prompt_args[@]}" "$chunk" \
-      > "$transcript_tmp" 2>> "$log"; then
+  if "${asr_command[@]}" "$chunk" > "$transcript_tmp" 2>> "$log"; then
     chmod 600 "$transcript_tmp"
     mv "$transcript_tmp" "$transcript"
     : > "$ok_marker"

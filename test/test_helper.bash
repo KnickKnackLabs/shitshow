@@ -11,7 +11,10 @@ shitshow() {
 export -f shitshow
 
 portable_mode() {
-  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"
+  case "$(uname -s)" in
+    Darwin) stat -f '%Lp' "$1" ;;
+    *) stat -c '%a' "$1" ;;
+  esac
 }
 
 fixture_sha256() {
