@@ -58,7 +58,7 @@ load test_helper
 }
 
 @test "public documentation states the private-data boundary" {
-  run grep -F "Never commit recordings, transcripts" "$REPO_DIR/README.md"
+  run grep -F "private meeting metadata stay out of Git" "$REPO_DIR/README.md"
   [ "$status" -eq 0 ]
   run grep -F "Real recordings" "$REPO_DIR/SECURITY.md"
   [ "$status" -eq 0 ]
