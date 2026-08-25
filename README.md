@@ -4,7 +4,7 @@
 
 # shitshow
 
-[![tests: 21](https://img.shields.io/badge/tests-21-brightgreen?style=flat)](test/)
+[![tests: 22](https://img.shields.io/badge/tests-22-brightgreen?style=flat)](test/)
 ![lints: 17](https://img.shields.io/badge/lints-17-blue?style=flat)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat)](LICENSE)
 

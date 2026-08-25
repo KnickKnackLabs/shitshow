@@ -55,6 +55,22 @@ arg_count() {
   [ "$(arg_count --filter)" -eq 1 ]
   [ "$(arg_count checksum)" -eq 1 ]
   [ "$(arg_count "$REPO_DIR/test/workflow.bats")" -eq 1 ]
+  [ "$(arg_count --no-parallelize-across-files)" -eq 0 ]
+}
+
+@test "parallel execution protects whitespace-bearing BATS arguments" {
+  setup_runner_fixture
+  target_dir="$BATS_TEST_TMPDIR/target with spaces"
+  target="$target_dir/probe.bats"
+  mkdir -p "$target_dir"
+  : > "$target"
+
+  run shitshow test "$target"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"whitespace-path fallback"* ]]
+  [ "$(arg_count --no-parallelize-across-files)" -eq 1 ]
+  [ "$(arg_count "$target")" -eq 1 ]
 }
 
 @test "explicit serial execution does not require Rush" {
