@@ -1,5 +1,6 @@
 /** @jsxImportSource jsx-md */
 
+import { execFileSync } from "child_process";
 import { existsSync, readFileSync, readdirSync } from "fs";
 import { join, resolve } from "path";
 
@@ -43,14 +44,32 @@ function countBatsTests(dir = TEST_DIR): number {
   return count;
 }
 
-function configuredLintCount(): number {
+function configuredLints(): string[] {
   const miseToml = read(join(REPO_DIR, "mise.toml"));
   const block = miseToml.match(/\[_\.codebase\][\s\S]*?lint\s*=\s*\[([\s\S]*?)\]/)?.[1] ?? "";
-  return [...block.matchAll(/"([^"]+)"/g)].length;
+  const configured = [...block.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  if (!configured.some((rule) => rule.startsWith("@"))) return configured;
+
+  const memberships = new Map<string, string[]>();
+  let currentGroup = "";
+  const groups = execFileSync("codebase", ["lint:groups"], {
+    cwd: REPO_DIR,
+    encoding: "utf8",
+  });
+  for (const line of groups.split("\n")) {
+    if (line.startsWith("@")) {
+      currentGroup = line;
+      memberships.set(currentGroup, []);
+    } else if (currentGroup && line.startsWith("  ")) {
+      memberships.get(currentGroup)!.push(line.trim());
+    }
+  }
+
+  return [...new Set(configured.flatMap((rule) => memberships.get(rule) ?? [rule]))];
 }
 
 const testCount = countBatsTests();
-const lintCount = configuredLintCount();
+const lintCount = configuredLints().length;
 
 const readme = (
   <>
