@@ -187,7 +187,7 @@ transcribe_audio_chunk() {
   temporary="$meeting_directory/transcripts/.chunk-${chunk_id}.$$.$(shitshow_random_hex 2).txt"
   rm -f "$failed_marker" "$temporary"
 
-  if "${command[@]}" "$chunk" > "$temporary" 2>> "$log"; then
+  if ${command[@]+"${command[@]}"} "$chunk" > "$temporary" 2>> "$log"; then
     chmod 600 "$temporary"
     mv "$temporary" "$transcript"
     : > "$completed_marker"

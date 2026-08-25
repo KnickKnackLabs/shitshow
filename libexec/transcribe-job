@@ -55,7 +55,7 @@ run_transcription_child() {
 
   (
     cd "$repo_root"
-    SHITSHOW_CALLER_PWD="/" mise run "${args[@]}"
+    SHITSHOW_CALLER_PWD="/" mise run ${args[@]+"${args[@]}"}
   ) &
   child_pid=$!
 }
