@@ -55,7 +55,15 @@ arg_count() {
   [ "$(arg_count --filter)" -eq 1 ]
   [ "$(arg_count checksum)" -eq 1 ]
   [ "$(arg_count "$REPO_DIR/test/workflow.bats")" -eq 1 ]
-  [ "$(arg_count --no-parallelize-across-files)" -eq 0 ]
+  case "$REPO_DIR" in
+    *[[:space:]]*)
+      [[ "$output" == *"whitespace-path fallback"* ]]
+      [ "$(arg_count --no-parallelize-across-files)" -eq 1 ]
+      ;;
+    *)
+      [ "$(arg_count --no-parallelize-across-files)" -eq 0 ]
+      ;;
+  esac
 }
 
 @test "parallel execution protects whitespace-bearing BATS arguments" {
